@@ -1,0 +1,42 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://127.0.0.1:8080",
+        "EXPO_PUBLIC_SOCKET_URL": "http://127.0.0.1:8081"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.bakerywala.cloud",
+        "EXPO_PUBLIC_SOCKET_URL": "https://api.bakerywala.cloud"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.bakerywala.cloud",
+        "EXPO_PUBLIC_SOCKET_URL": "https://api.bakerywala.cloud"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

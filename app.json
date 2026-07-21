@@ -1,18 +1,20 @@
 {
   "expo": {
-    "name": "user-mobile",
-    "slug": "user-mobile",
+    "name": "SweetCrust",
+    "slug": "sweetcrust-user",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "usermobile",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "in.sweetcrust.user",
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "in.sweetcrust.user",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FFF8EF",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -28,15 +30,17 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#4A2C1A",
+          "image": "./assets/images/logo-glow.png",
+          "imageWidth": 160,
+          "resizeMode": "contain"
         }
-      ]
+      ],
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": false
     }
   }
 }
