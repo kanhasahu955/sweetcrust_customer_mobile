@@ -1,13 +1,16 @@
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-/** Visual height of the floating dock (icons + labels + padding), excluding safe-area. */
-export const TAB_BAR_HEIGHT = 60;
+/** Dock content height (icons + labels), excluding home-indicator pad. */
+export const TAB_BAR_HEIGHT = 56;
+
+/** Visible wavy crest (fully in-bounds lobes). */
+export const TAB_WAVE_HEIGHT = 22;
 
 /**
- * Space to keep clear above the floating tab bar.
- * Use for scroll paddingBottom and for absolute footer `bottom`.
+ * Space to keep clear above the tab dock.
+ * Dock is flush to the bottom — safe-area lives inside the bar.
  */
 export function useTabBarClearance(extra = 8) {
   const insets = useSafeAreaInsets();
-  return TAB_BAR_HEIGHT + Math.max(insets.bottom, 8) + extra;
+  return TAB_BAR_HEIGHT + TAB_WAVE_HEIGHT + insets.bottom + extra;
 }

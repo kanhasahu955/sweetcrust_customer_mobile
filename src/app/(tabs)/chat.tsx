@@ -1,24 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 
 import { FadeIn } from "@/components/FadeIn";
 import { BrandHeader } from "@/components/ui/BrandHeader";
 import { Icon } from "@/components/ui/Icon";
+import { Screen } from "@/components/ui/Screen";
 import { api } from "@/lib/api";
 import { ApiError } from "@/lib/api-client";
 import { useTabBarClearance } from "@/hooks/use-tab-bar-clearance";
@@ -60,8 +61,8 @@ export default function ChatScreen() {
   const [peerTyping, setPeerTyping] = useState(false);
   const [handover, setHandover] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
   const [quick, setQuick] = useState<string[]>([]);
+  const [attachOpen, setAttachOpen] = useState(false);
   const listRef = useRef<FlatList>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const convIdRef = useRef<number | null>(null);
@@ -254,8 +255,16 @@ export default function ChatScreen() {
     setBusy(true);
     setError(null);
     try {
-      await api.customer.startCall({ target: "bakery" });
-      Alert.alert("Call requested", "Bakery has been notified.");
+      const call = (await api.customer.startCall({
+        target: "bakery",
+        call_type: "phone",
+      })) as { id?: number; masked_number?: string | null };
+      const phone = String(call.masked_number || "").replace(/[^\d+]/g, "");
+      if (phone) {
+        await Linking.openURL(`tel:${phone}`);
+      } else {
+        setError("Dialer number unavailable — try Call history.");
+      }
       if (conv?.id) await loadMessages(conv.id);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Call request failed");
@@ -263,10 +272,6 @@ export default function ChatScreen() {
       setBusy(false);
     }
   }
-
-  const visible = query.trim()
-    ? messages.filter((m) => (m.content || "").toLowerCase().includes(query.trim().toLowerCase()))
-    : messages;
 
   function renderMsg({ item }: { item: Msg }) {
     const mine = item.sender_role === "customer";
@@ -309,16 +314,15 @@ export default function ChatScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: c.cream }]} edges={["top"]}>
-      <LinearGradient colors={[c.cream, c.blushSoft, c.creamDeep]} style={styles.bg} />
+    <Screen pad={false} edges={[]}>
+      <BrandHeader left="none" right="none" />
+      <LinearGradient colors={["#E4EEF7", c.cream, "#F7EEF2", c.creamDeep]} style={styles.bg} />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={8}
       >
         <FadeIn>
-          <BrandHeader left="none" right="none" tagline="MADE WITH LOVE" compact />
-
           <View style={styles.header}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.title, { color: c.ink }]}>Chat</Text>
@@ -358,53 +362,27 @@ export default function ChatScreen() {
             </View>
           ) : null}
 
-          <View style={styles.actions}>
-            <Pressable
-              style={[styles.chip, { backgroundColor: c.paper, borderColor: c.border }]}
-              onPress={callBakery}
-              disabled={busy}
+          {quick.length ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.quickRow}
+              style={styles.quickScroll}
             >
-              <Icon name="call-outline" size={16} color={c.pink} />
-              <Text style={[styles.chipText, { color: c.ink }]}>Call</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.chip, { backgroundColor: c.paper, borderColor: c.border }]}
-              onPress={() => pickAndSend(false)}
-              disabled={busy || !conv?.id}
-            >
-              <Icon name="image-outline" size={16} color={c.pink} />
-              <Text style={[styles.chipText, { color: c.ink }]}>Photo</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.chip, { backgroundColor: c.paper, borderColor: c.border }]}
-              onPress={() => pickAndSend(true)}
-              disabled={busy || !conv?.id}
-            >
-              <Icon name="camera-outline" size={16} color={c.pink} />
-              <Text style={[styles.chipText, { color: c.ink }]}>Camera</Text>
-            </Pressable>
-          </View>
-
-          <TextInput
-            style={[styles.search, { borderColor: c.border, backgroundColor: c.paper, color: c.ink }]}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search messages…"
-            placeholderTextColor={c.muted}
-          />
-
-          <View style={styles.quickRow}>
-            {quick.map((q) => (
-              <Pressable
-                key={q}
-                style={[styles.quick, { backgroundColor: c.blushSoft }]}
-                onPress={() => sendText(q)}
-                disabled={busy}
-              >
-                <Text style={[styles.quickText, { color: c.ink }]}>{q}</Text>
-              </Pressable>
-            ))}
-          </View>
+              {quick.map((q) => (
+                <Pressable
+                  key={q}
+                  style={[styles.quick, { backgroundColor: c.blushSoft, borderColor: "rgba(233,116,142,0.25)" }]}
+                  onPress={() => sendText(q)}
+                  disabled={busy}
+                >
+                  <Text style={[styles.quickText, { color: c.ink }]} numberOfLines={1}>
+                    {q}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : null}
 
           {error ? <Text style={[styles.error, { color: c.danger }]}>{error}</Text> : null}
           {peerTyping ? <Text style={[styles.typing, { color: c.pink }]}>Bakery is typing…</Text> : null}
@@ -412,7 +390,7 @@ export default function ChatScreen() {
 
         <FlatList
           ref={listRef}
-          data={visible}
+          data={messages}
           keyExtractor={(m) => String(m.id)}
           renderItem={renderMsg}
           contentContainerStyle={styles.list}
@@ -421,24 +399,80 @@ export default function ChatScreen() {
             <Text style={[styles.empty, { color: c.muted }]}>
               {useAi
                 ? "Ask about cakes, delivery, returns, or custom orders."
-                : "Message the bakery. Photos and call supported."}
+                : "Message the bakery. Tap + for call, photo, or camera."}
             </Text>
           }
         />
 
-        <View style={[styles.composerWrap, { paddingBottom: clearance }]}>
-          <View style={[styles.composer, { backgroundColor: c.paper, borderColor: c.border }]}>
+        <View style={[styles.composerWrap, { paddingBottom: clearance, backgroundColor: "#FFFFFF", borderTopColor: c.border }]}>
+          {attachOpen ? (
+            <View style={styles.attachMenu}>
+              {!useAi ? (
+                <Pressable
+                  style={[styles.attachItem, { backgroundColor: c.blushSoft }]}
+                  onPress={() => {
+                    setAttachOpen(false);
+                    void callBakery();
+                  }}
+                  disabled={busy}
+                >
+                  <View style={[styles.attachIcon, { backgroundColor: c.pink }]}>
+                    <Icon name="call-outline" size={16} color="#FFF" />
+                  </View>
+                  <Text style={[styles.attachLabel, { color: c.ink }]}>Call</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                style={[styles.attachItem, { backgroundColor: c.cream }]}
+                onPress={() => {
+                  setAttachOpen(false);
+                  void pickAndSend(false);
+                }}
+                disabled={busy || !conv?.id}
+              >
+                <View style={[styles.attachIcon, { backgroundColor: c.chocolate }]}>
+                  <Icon name="image-outline" size={16} color="#FFF" />
+                </View>
+                <Text style={[styles.attachLabel, { color: c.ink }]}>Photo</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.attachItem, { backgroundColor: c.cream }]}
+                onPress={() => {
+                  setAttachOpen(false);
+                  void pickAndSend(true);
+                }}
+                disabled={busy || !conv?.id}
+              >
+                <View style={[styles.attachIcon, { backgroundColor: c.pink }]}>
+                  <Icon name="camera-outline" size={16} color="#FFF" />
+                </View>
+                <Text style={[styles.attachLabel, { color: c.ink }]}>Camera</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          <View style={[styles.composer, { backgroundColor: c.cream, borderColor: c.border }]}>
+            <Pressable
+              style={[styles.attachBtn, { backgroundColor: attachOpen ? c.pink : c.paper, borderColor: c.border }]}
+              onPress={() => setAttachOpen((v) => !v)}
+              accessibilityLabel={attachOpen ? "Close attach menu" : "Open attach menu"}
+            >
+              <Icon name={attachOpen ? "close" : "add"} size={22} color={attachOpen ? "#FFF" : c.pink} />
+            </Pressable>
             <TextInput
               style={[styles.input, { color: c.ink }]}
               value={draft}
-              onChangeText={onDraft}
+              onChangeText={(t) => {
+                if (attachOpen) setAttachOpen(false);
+                onDraft(t);
+              }}
               placeholder={useAi ? "Ask AI…" : "Message bakery…"}
               placeholderTextColor={c.muted}
               editable={!busy}
               multiline
             />
             <Pressable
-              style={[styles.send, { backgroundColor: c.pink }]}
+              style={[styles.send, { backgroundColor: c.pink, opacity: busy || !draft.trim() ? 0.45 : 1 }]}
               onPress={() => sendText()}
               disabled={busy || !draft.trim()}
             >
@@ -447,7 +481,7 @@ export default function ChatScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
@@ -488,28 +522,21 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   handoverText: { flex: 1, fontFamily: fonts.medium, fontSize: 13 },
-  actions: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
-  chip: {
+  quickScroll: { maxHeight: 42, flexGrow: 0, marginTop: 10, marginBottom: 4 },
+  quickRow: {
     flexDirection: "row",
+    flexWrap: "nowrap",
     alignItems: "center",
-    gap: 6,
+    gap: 8,
+    paddingHorizontal: 16,
+  },
+  quick: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: radius.pill,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexShrink: 0,
   },
-  chipText: { fontSize: 13, fontFamily: fonts.bold },
-  search: {
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderRadius: radius.pill,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    fontFamily: fonts.body,
-  },
-  quickRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, paddingBottom: 6 },
-  quick: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill },
   quickText: { fontSize: 12, fontFamily: fonts.medium },
   error: { paddingHorizontal: 16, marginBottom: 4, fontSize: 13, fontFamily: fonts.medium },
   typing: { paddingHorizontal: 16, fontSize: 12, fontFamily: fonts.bold, marginBottom: 2 },
@@ -536,29 +563,76 @@ const styles = StyleSheet.create({
   body: { fontSize: 15, lineHeight: 21, fontFamily: fonts.body },
   tick: { marginTop: 4, fontSize: 10, alignSelf: "flex-end", fontFamily: fonts.medium },
   photo: { width: 200, height: 160, borderRadius: 12, marginBottom: 4 },
-  composerWrap: { backgroundColor: "transparent" },
+  composerWrap: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 8,
+    paddingHorizontal: 12,
+  },
+  attachMenu: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  attachItem: {
+    flex: 1,
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 16,
+  },
+  attachIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#4A6280",
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+  attachLabel: { fontFamily: fonts.bold, fontSize: 12 },
   composer: {
     flexDirection: "row",
     gap: 8,
-    marginHorizontal: 12,
-    marginBottom: 8,
+    marginBottom: 6,
     padding: 8,
-    borderRadius: radius.xl,
+    borderRadius: 22,
     borderWidth: 1,
     alignItems: "flex-end",
   },
+  attachBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#E9748E",
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
   input: {
     flex: 1,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     paddingVertical: Platform.OS === "ios" ? 10 : 8,
     fontFamily: fonts.body,
     maxHeight: 100,
   },
   send: {
-    borderRadius: radius.pill,
-    width: 44,
-    height: 44,
+    borderRadius: 20,
+    width: 40,
+    height: 40,
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#E9748E",
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
   },
 });

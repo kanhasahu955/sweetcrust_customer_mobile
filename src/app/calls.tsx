@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 
 import { Banner } from "@/components/ui/Banner";
@@ -62,9 +62,15 @@ export default function CallsScreen() {
     try {
       const call = (await api.customer.startCall({
         target: "bakery",
-        call_type: "internet_audio",
+        call_type: "phone",
       })) as CallRow;
-      setMsg(`Calling bakery… #${call.id}${call.masked_number ? ` · ${call.masked_number}` : ""}`);
+      const phone = String(call.masked_number || "").replace(/[^\d+]/g, "");
+      if (phone) {
+        await Linking.openURL(`tel:${phone}`);
+        setMsg("Opening phone dialer…");
+      } else {
+        setMsg(`Call logged #${call.id}. Chat support if dialer number is unavailable.`);
+      }
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not start call");

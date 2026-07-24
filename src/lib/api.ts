@@ -134,6 +134,16 @@ export function normalizePhone(phone: string): string {
   return digits ? `+${digits}` : phone.trim();
 }
 
+/** Real mobile (not guest +91GUEST… placeholders). Razorpay contact needs 8–14 digits. */
+export function isRealMobile(phone: string): boolean {
+  const raw = String(phone || "").trim();
+  if (!raw || /GUEST/i.test(raw)) return false;
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length === 10) return true;
+  if (digits.length === 12 && digits.startsWith("91")) return true;
+  return digits.length >= 8 && digits.length <= 14;
+}
+
 /** Bakery-area default used when the app has no map picker yet. */
 export const DEFAULT_DELIVERY_COORDS = {
   latitude: 19.1197,

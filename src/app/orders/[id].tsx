@@ -21,6 +21,7 @@ import { Screen } from "@/components/ui/Screen";
 import { useApp } from "@/context/app";
 import { useThemeColors } from "@/context/theme";
 import { api } from "@/lib/api";
+import { waitForPaymentStatus } from "@/lib/payment";
 import { connectSocket, getSocket, joinOrderRoom } from "@/lib/socket";
 import { float, fonts, radius, space } from "@/lib/theme";
 import { money, type Order } from "@/lib/types";
@@ -192,12 +193,20 @@ export default function OrderDetailScreen() {
   async function payRazorpay() {
     setBusy(true);
     setError(null);
+    setMsg(null);
     try {
       const rz = await api.payments.razorpayCreate(orderId);
       const url = rz.short_url || rz.payment_link?.short_url;
-      if (url) await WebBrowser.openBrowserAsync(url);
-      else setError("Payment link unavailable");
+      if (!url) {
+        setError("Payment link unavailable");
+        return;
+      }
+      await WebBrowser.openBrowserAsync(url);
+      const status = await waitForPaymentStatus(orderId);
       await load();
+      if (status === "paid") setMsg("Payment received");
+      else if (status === "failed") setError("Payment failed or cancelled");
+      else setMsg("Payment still pending — pull to refresh in a moment");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Payment failed");
     } finally {
@@ -374,7 +383,7 @@ export default function OrderDetailScreen() {
           <FloatPress onPress={payRazorpay} disabled={busy}>
             <LinearGradient colors={[c.pink, c.coral]} style={styles.cta}>
               <Icon name="card-outline" size={18} color="#FFF" />
-              <Text style={styles.ctaText}>Pay with Razorpay</Text>
+              <Text style={styles.ctaText}>Pay online</Text>
             </LinearGradient>
           </FloatPress>
         ) : null}

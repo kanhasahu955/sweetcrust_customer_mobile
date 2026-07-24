@@ -8,7 +8,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
@@ -18,6 +17,7 @@ import { BrandHeader, TitleFlourish } from "@/components/ui/BrandHeader";
 import { FloatPress } from "@/components/ui/FloatPress";
 import { Icon } from "@/components/ui/Icon";
 import { Screen } from "@/components/ui/Screen";
+import { useClimate } from "@/context/climate";
 import { useThemeColors } from "@/context/theme";
 import { api, DEFAULT_DELIVERY_COORDS, getStoredUser, normalizePhone } from "@/lib/api";
 import type { AddressDetails } from "@/lib/address";
@@ -33,8 +33,8 @@ function labelIcon(label?: string) {
 }
 
 export default function AddressesScreen() {
-  const router = useRouter();
   const c = useThemeColors();
+  const { setClimateCoords, syncFromAddresses } = useClimate();
   const user = getStoredUser();
   const [list, setList] = useState<Address[]>([]);
   const [picked, setPicked] = useState<AddressDetails | null>(null);
@@ -45,7 +45,6 @@ export default function AddressesScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [coverage, setCoverage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -63,23 +62,14 @@ export default function AddressesScreen() {
     load();
   }, [load]);
 
-  async function checkDelivery(lat: number, lng: number) {
-    try {
-      const res = await api.customer.deliveryCheck(lat, lng);
-      const ok = Boolean(res.deliverable ?? res.ok ?? res.within_radius);
-      setCoverage(ok ? "We deliver here" : String(res.detail || "Outside delivery radius"));
-      return ok;
-    } catch (e) {
-      setCoverage(e instanceof Error ? e.message : "Delivery check failed");
-      return false;
-    }
-  }
-
   async function onPick(next: AddressDetails) {
     setPicked(next);
-    if (next.latitude && next.longitude) {
-      await checkDelivery(next.latitude, next.longitude);
-    }
+    setError(null);
+  }
+
+  async function applyClimate(lat: number, lng: number, makeDefault: boolean) {
+    if (makeDefault) await setClimateCoords(lat, lng);
+    else await syncFromAddresses();
   }
 
   async function save() {
@@ -94,15 +84,19 @@ export default function AddressesScreen() {
       setError("Pick an address from search");
       return;
     }
+    if (picked?.latitude == null || picked?.longitude == null) {
+      setError("Pick a location with map coordinates");
+      return;
+    }
     setBusy(true);
     setError(null);
     setMsg(null);
     try {
-      const ok = await checkDelivery(lat, lng);
-      if (!ok) {
-        setError(coverage || "Outside delivery area");
-        return;
+      const zone = await api.customer.deliveryCheck(lat, lng);
+      if (zone?.deliverable === false) {
+        throw new Error(zone.detail || "Sorry, we don’t deliver to this location yet.");
       }
+      const makeDefault = list.length === 0;
       await api.customer.addAddress({
         label: label.trim() || "Home",
         full_name: fullName.trim(),
@@ -110,12 +104,13 @@ export default function AddressesScreen() {
         line1,
         city: picked?.city || "",
         state: picked?.state || "",
-        pincode: picked?.pincode || "",
+        pincode: picked?.pincode || "000000",
         latitude: lat,
         longitude: lng,
-        is_default: list.length === 0,
+        is_default: makeDefault,
       });
-      setMsg("Address saved");
+      await applyClimate(lat, lng, makeDefault);
+      setMsg("Address saved · weather updated");
       setPicked(null);
       await load();
     } catch (e) {
@@ -130,6 +125,7 @@ export default function AddressesScreen() {
     try {
       await api.customer.deleteAddress(id);
       await load();
+      await syncFromAddresses();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Delete failed");
     } finally {
@@ -141,6 +137,8 @@ export default function AddressesScreen() {
     setBusy(true);
     setError(null);
     try {
+      const lat = a.latitude ?? DEFAULT_DELIVERY_COORDS.latitude;
+      const lng = a.longitude ?? DEFAULT_DELIVERY_COORDS.longitude;
       await api.customer.addAddress({
         label: a.label || "Home",
         full_name: a.full_name,
@@ -148,13 +146,14 @@ export default function AddressesScreen() {
         line1: a.line1,
         city: a.city || "",
         state: a.state || "",
-        pincode: a.pincode,
-        latitude: a.latitude ?? DEFAULT_DELIVERY_COORDS.latitude,
-        longitude: a.longitude ?? DEFAULT_DELIVERY_COORDS.longitude,
+        pincode: a.pincode || "000000",
+        latitude: lat,
+        longitude: lng,
         is_default: true,
       });
       await api.customer.deleteAddress(a.id);
-      setMsg("Default address updated");
+      await setClimateCoords(Number(lat), Number(lng));
+      setMsg("Default address updated · weather updated");
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not set default");
@@ -179,7 +178,6 @@ export default function AddressesScreen() {
 
         {error ? <Banner text={error} tone="danger" /> : null}
         {msg ? <Banner text={msg} tone="ok" /> : null}
-        {coverage ? <Banner text={coverage} tone={coverage.includes("deliver") ? "ok" : "warn"} /> : null}
 
         <Field label="Label" value={label} onChange={setLabel} />
         <Field label="Full name" value={fullName} onChange={setFullName} />

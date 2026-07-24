@@ -1,9 +1,12 @@
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, StyleSheet, Text, View } from "react-native";
 
 import { FloatPress } from "@/components/ui/FloatPress";
 import { Icon } from "@/components/ui/Icon";
+import { SmokeAtmosphere } from "@/components/ui/SmokeAtmosphere";
 import { useThemeColors } from "@/context/theme";
 import { fonts, radius, space } from "@/lib/theme";
+
+const APP_LOGO = require("../../../assets/images/sweetcrust-logo.png");
 
 type Props = {
   onRetry?: () => void;
@@ -15,8 +18,8 @@ export function OfflineScreen({ onRetry, reconnecting }: Props) {
   const c = useThemeColors();
   return (
     <View style={[styles.root, { backgroundColor: c.cream }]}>
-      <Text style={[styles.logo, { color: c.ink }]}>SweetCrust</Text>
-      <Text style={[styles.bakery, { color: c.muted }]}>• BAKERY •</Text>
+      <SmokeAtmosphere />
+      <Image source={APP_LOGO} style={styles.logo} resizeMode="contain" accessibilityLabel="SweetCrust Bakery" />
 
       <View style={[styles.hero, { backgroundColor: c.blushSoft, borderColor: c.coral }]}>
         <Icon name="wifi" size={36} color={c.coral} />
@@ -24,7 +27,6 @@ export function OfflineScreen({ onRetry, reconnecting }: Props) {
           <Icon name="close" size={28} color={c.coral} />
         </View>
       </View>
-      <Icon name="nutrition" size={48} color={c.coral} />
 
       <Text style={[styles.title, { color: c.ink }]}>You're offline</Text>
       <Text style={[styles.sub, { color: c.cocoa }]}>
@@ -38,7 +40,7 @@ export function OfflineScreen({ onRetry, reconnecting }: Props) {
 
       {reconnecting ? (
         <View style={styles.reconnect}>
-          <ActivityIndicator size="small" color={c.coral} />
+          <ActivityIndicator color={c.pink} />
           <Text style={[styles.reconnectText, { color: c.muted }]}>Reconnecting…</Text>
         </View>
       ) : null}
@@ -51,34 +53,33 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: space.xl,
-    gap: space.sm,
+    paddingHorizontal: space.xl,
+    gap: space.md,
   },
-  logo: { fontFamily: fonts.display, fontSize: 28 },
-  bakery: { fontFamily: fonts.bold, fontSize: 11, letterSpacing: 2, marginBottom: space.md },
+  logo: { width: 140, height: 140, marginBottom: space.sm, zIndex: 1 },
   hero: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 2,
-    borderStyle: "dashed",
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 4,
+    zIndex: 1,
   },
-  slash: { position: "absolute", right: 18, top: 18 },
-  title: { fontFamily: fonts.display, fontSize: 28, marginTop: space.md },
-  sub: { fontFamily: fonts.body, fontSize: 15, textAlign: "center", lineHeight: 22, marginBottom: space.md },
+  slash: { position: "absolute", right: 10, bottom: 10 },
+  title: { fontFamily: fonts.display, fontSize: 28, textAlign: "center", zIndex: 1 },
+  sub: { fontFamily: fonts.body, fontSize: 14, textAlign: "center", lineHeight: 20, zIndex: 1 },
   btn: {
+    marginTop: space.sm,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     borderRadius: radius.lg,
+    paddingHorizontal: 22,
     paddingVertical: 14,
-    paddingHorizontal: 28,
-    marginTop: space.sm,
+    zIndex: 1,
   },
-  btnText: { fontFamily: fonts.bold, color: "#FFF", fontSize: 16 },
-  reconnect: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: space.lg },
+  btnText: { color: "#FFF", fontFamily: fonts.bold, fontSize: 15 },
+  reconnect: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4, zIndex: 1 },
   reconnectText: { fontFamily: fonts.medium, fontSize: 13 },
 });

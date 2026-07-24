@@ -30,9 +30,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#4A2C1A",
-          "image": "./assets/images/logo-glow.png",
-          "imageWidth": 160,
+          "backgroundColor": "#0E0907",
+          "image": "./assets/images/sweetcrust-logo.png",
+          "imageWidth": 260,
           "resizeMode": "contain"
         }
       ],
@@ -41,6 +41,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": false
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "bf99b6be-4c34-4d9a-bfc2-7c941a92a50e"
+      }
     }
   }
 }

@@ -321,7 +321,12 @@ export function createApiClient(opts: { baseUrl?: string; tokenStore?: TokenStor
       deleteAddress: (addressId: number) =>
         json(`/api/v1/customer/addresses/${addressId}`, { method: "DELETE" }),
       deliveryCheck: (lat: number, lng: number) =>
-        json<Record<string, unknown>>("/api/v1/customer/delivery/check", {
+        json<{
+          deliverable?: boolean;
+          distance_km?: number;
+          max_km?: number;
+          detail?: string;
+        }>("/api/v1/customer/delivery/check", {
           method: "POST",
           body: JSON.stringify({ lat, lng }),
         }),

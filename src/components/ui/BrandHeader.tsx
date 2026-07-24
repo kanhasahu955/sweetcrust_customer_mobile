@@ -1,10 +1,16 @@
 import type { ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 
+import { ClimateHeaderBar } from "@/components/ui/ClimateHeaderBar";
 import { Icon } from "@/components/ui/Icon";
 import { useThemeColors } from "@/context/theme";
 import { fonts, space } from "@/lib/theme";
+
+/** Original SweetCrust mark (transparent background). */
+const APP_LOGO = require("../../../assets/images/sweetcrust-logo.png");
+/** Tight crop is ~1.88 wide — keep header short. */
+const LOGO_ASPECT = 1.85;
 
 type Side = "back" | "menu" | "cart" | "bell" | "support" | "none" | ReactNode;
 
@@ -12,10 +18,19 @@ type Props = {
   left?: Side;
   right?: Side;
   tagline?: string | null;
+  /** Listing pages: show title instead of logo (Blinkit-style). */
+  title?: string | null;
+  subtitle?: string | null;
+  /** Rendered under the nav row inside the climate strip (e.g. search). */
+  children?: ReactNode;
   cartCount?: number;
   onLeft?: () => void;
   onRight?: () => void;
   compact?: boolean;
+  /** Larger mark for login / onboarding */
+  hero?: boolean;
+  /** Same season animation as Home header (default on). */
+  climate?: boolean;
 };
 
 function SideBtn({
@@ -60,13 +75,19 @@ export function BrandHeader({
   left = "back",
   right = "none",
   tagline = null,
+  title = null,
+  subtitle = null,
+  children,
   cartCount,
   onLeft,
   onRight,
   compact,
+  hero,
+  climate = true,
 }: Props) {
   const router = useRouter();
   const c = useThemeColors();
+  const listing = Boolean(title) && !hero;
 
   const handleLeft = () => {
     if (onLeft) onLeft();
@@ -80,22 +101,63 @@ export function BrandHeader({
     else if (right === "support") router.push("/(tabs)/chat");
   };
 
-  return (
-    <View style={styles.wrap}>
-      <View style={styles.row}>
-        <SideBtn side={left} onPress={handleLeft} color={c.ink} accent={c.pink} count={cartCount} />
-        <View style={styles.brand}>
-          <Text style={[styles.logo, { color: c.ink, fontSize: compact ? 18 : 22 }]}>SweetCrust</Text>
-          <Text style={[styles.bakery, { color: c.pink }]}>BAKERY</Text>
-          {tagline ? (
-            <Text style={[styles.tag, { color: c.muted }]}>• {tagline} •</Text>
-          ) : null}
-        </View>
-        <SideBtn side={right} onPress={handleRight} color={c.ink} accent={c.pink} count={cartCount} />
+  const h = hero ? 140 : compact ? 48 : 56;
+  const w = Math.round(h * LOGO_ASPECT);
+  const useClimate = climate && !hero;
+
+  const row = (
+    <View style={[styles.wrap, hero && styles.wrapHero, useClimate && styles.wrapClimate]}>
+      <View style={[styles.row, { minHeight: Math.max(40, h * (hero ? 1 : 0.75)) }]}>
+        {!hero ? (
+          <SideBtn side={left} onPress={handleLeft} color={c.ink} accent={c.pink} count={cartCount} />
+        ) : (
+          <View style={styles.slot} />
+        )}
+        {listing ? (
+          <View style={styles.titleBlock}>
+            <Text style={[styles.titleText, { color: c.ink }]} numberOfLines={1}>
+              {title}
+            </Text>
+            {subtitle ? (
+              <Text style={[styles.subText, { color: c.muted }]} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            ) : null}
+          </View>
+        ) : (
+          <View style={styles.brand}>
+            <Image
+              source={APP_LOGO}
+              style={{ width: w, height: useClimate ? Math.min(h, 44) : h }}
+              resizeMode="contain"
+              accessibilityLabel="SweetCrust Bakery"
+            />
+            {tagline && !hero ? (
+              <Text style={[styles.tag, { color: c.muted }]} numberOfLines={1}>
+                {tagline}
+              </Text>
+            ) : null}
+          </View>
+        )}
+        {!hero ? (
+          <SideBtn side={right} onPress={handleRight} color={c.ink} accent={c.pink} count={cartCount} />
+        ) : (
+          <View style={styles.slot} />
+        )}
       </View>
+      {children}
+    </View>
+  );
+
+  if (!useClimate) return row;
+  return (
+    <View style={styles.sticky}>
+      <ClimateHeaderBar compact={compact || listing}>{row}</ClimateHeaderBar>
     </View>
   );
 }
+
+(BrandHeader as typeof BrandHeader & { bleed?: boolean }).bleed = true;
 
 /** Centered title with heart flourish (cart / favorites mockups). */
 export function TitleFlourish({ title, subtitle }: { title: string; subtitle?: string }) {
@@ -114,23 +176,33 @@ export function TitleFlourish({ title, subtitle }: { title: string; subtitle?: s
 }
 
 const styles = StyleSheet.create({
-  wrap: { paddingBottom: space.sm },
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sticky: { zIndex: 40, elevation: 40, width: "100%", alignSelf: "stretch" },
+  wrap: { paddingBottom: 4, paddingTop: 0, gap: 8, width: "100%" },
+  wrapHero: { paddingBottom: space.md },
+  wrapClimate: { paddingBottom: 6 },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+  },
   slot: {
     width: 40,
     height: 40,
     alignItems: "center",
     justifyContent: "center",
   },
-  brand: { flex: 1, alignItems: "center" },
-  logo: { fontFamily: fonts.display, letterSpacing: -0.4 },
-  bakery: {
-    fontFamily: fonts.bold,
-    fontSize: 10,
-    letterSpacing: 2.5,
-    marginTop: 1,
+  brand: { flex: 1, alignItems: "center", justifyContent: "center" },
+  titleBlock: { flex: 1, paddingHorizontal: 6, justifyContent: "center", alignItems: "center" },
+  titleText: { fontFamily: fonts.bold, fontSize: 17, letterSpacing: -0.2, textAlign: "center" },
+  subText: { fontFamily: fonts.medium, fontSize: 11, marginTop: 1, textAlign: "center" },
+  tag: {
+    fontFamily: fonts.medium,
+    fontSize: 9,
+    letterSpacing: 0.8,
+    marginTop: 2,
+    textTransform: "uppercase",
   },
-  tag: { fontFamily: fonts.medium, fontSize: 10, letterSpacing: 1, marginTop: 2 },
   badge: {
     position: "absolute",
     top: 2,

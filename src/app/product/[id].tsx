@@ -233,24 +233,22 @@ export default function ProductScreen() {
   const allergens = product.allergens?.trim() || null;
 
   return (
-    <Screen pad={false} edges={["top"]}>
-      <View style={[styles.topBar, { backgroundColor: c.cream }]}>
-        <BrandHeader
-          left="back"
-          compact
-          onLeft={() => router.back()}
-          right={
-            <View style={styles.topActions}>
-              <Pressable onPress={toggleFav} hitSlop={8}>
-                <Icon name={fav ? "heart" : "heart-outline"} size={22} color={c.pink} />
-              </Pressable>
-              <Pressable onPress={shareProduct} hitSlop={8}>
-                <Icon name="share-outline" size={22} color={c.ink} />
-              </Pressable>
-            </View>
-          }
-        />
-      </View>
+    <Screen pad={false} edges={[]}>
+      <BrandHeader
+        left="back"
+        compact
+        onLeft={() => router.back()}
+        right={
+          <View style={styles.topActions}>
+            <Pressable onPress={toggleFav} hitSlop={8}>
+              <Icon name={fav ? "heart" : "heart-outline"} size={22} color={c.pink} />
+            </Pressable>
+            <Pressable onPress={shareProduct} hitSlop={8}>
+              <Icon name="share-outline" size={22} color={c.ink} />
+            </Pressable>
+          </View>
+        }
+      />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.gallery}>
@@ -553,10 +551,6 @@ export default function ProductScreen() {
 const styles = StyleSheet.create({
   pad: { paddingHorizontal: space.lg, gap: space.md, paddingBottom: 120 },
   content: { paddingBottom: 16 },
-  topBar: {
-    paddingHorizontal: space.md,
-    paddingVertical: 4,
-  },
   topActions: { flexDirection: "row", gap: 14, alignItems: "center" },
   addRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   gallery: { width: W, height: 320, backgroundColor: fallbackColors.creamDeep },

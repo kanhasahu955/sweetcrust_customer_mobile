@@ -30,8 +30,9 @@ type ReferralData = {
 };
 
 async function copyText(text: string) {
-  await Share.share({ message: text });
-  return false;
+  const res = await Share.share({ message: text });
+  // RN has no Clipboard here — share sheet is the copy path
+  return res.action === Share.sharedAction;
 }
 
 export default function ReferralScreen() {
@@ -134,8 +135,8 @@ export default function ReferralScreen() {
                 style={[styles.secondary, { borderColor: c.chocolate, backgroundColor: c.paper }]}
                 onPress={async () => {
                   if (!data?.code) return;
-                  const copied = await copyText(data.code);
-                  setMsg(copied ? "Code copied" : "Shared code");
+                  const shared = await copyText(data.code);
+                  setMsg(shared ? "Code ready in share sheet" : "Share cancelled");
                 }}
               >
                 <Icon name="copy-outline" size={16} color={c.chocolate} />

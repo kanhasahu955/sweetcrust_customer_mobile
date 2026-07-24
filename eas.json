@@ -21,8 +21,8 @@
         "simulator": false
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.bakerywala.cloud",
-        "EXPO_PUBLIC_SOCKET_URL": "https://api.bakerywala.cloud"
+        "EXPO_PUBLIC_API_URL": "https://api.skbakery.in",
+        "EXPO_PUBLIC_SOCKET_URL": "https://api.skbakery.in"
       }
     },
     "production": {
@@ -31,8 +31,16 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.bakerywala.cloud",
-        "EXPO_PUBLIC_SOCKET_URL": "https://api.bakerywala.cloud"
+        "EXPO_PUBLIC_API_URL": "https://api.skbakery.in",
+        "EXPO_PUBLIC_SOCKET_URL": "https://api.skbakery.in"
+      }
+    },
+    "production-apk": {
+      "extends": "production",
+      "distribution": "internal",
+      "environment": "production",
+      "android": {
+        "buildType": "apk"
       }
     }
   },

@@ -14,9 +14,18 @@ const MAP: Record<TabName, { on: IconName; off: IconName }> = {
   shop: { on: "person", off: "person-outline" },
 };
 
-export function TabGlyph({ name, focused }: { name: TabName; focused: boolean }) {
+export function TabGlyph({
+  name,
+  focused,
+  hot,
+}: {
+  name: TabName;
+  focused: boolean;
+  /** Pink active tint for the creamy dock. */
+  hot?: boolean;
+}) {
   const c = useThemeColors();
-  const tint = focused ? c.chocolate : c.muted;
+  const tint = focused ? (hot ? c.pink : c.chocolate) : c.muted;
   const pair = MAP[name];
   return <Icon name={focused ? pair.on : pair.off} size={20} color={tint} />;
 }

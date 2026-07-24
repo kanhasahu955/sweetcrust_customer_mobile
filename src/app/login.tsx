@@ -15,7 +15,6 @@ import * as WebBrowser from "expo-web-browser";
 import { FadeIn } from "@/components/FadeIn";
 import { BrandHeader, TitleFlourish } from "@/components/ui/BrandHeader";
 import { FloatPress } from "@/components/ui/FloatPress";
-import { Icon } from "@/components/ui/Icon";
 import { Screen } from "@/components/ui/Screen";
 import { useApp } from "@/context/app";
 import { useThemeColors } from "@/context/theme";
@@ -186,13 +185,10 @@ export default function LoginScreen() {
   const showError = error || appError;
 
   return (
-    <Screen>
+    <Screen edges={["top", "left", "right"]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
         <FadeIn delay={40} style={styles.brandBlock}>
-          <BrandHeader left="none" right="none" compact />
-          <View style={[styles.logoCircle, { backgroundColor: c.blushSoft, borderColor: c.blush }]}>
-            <Icon name="cafe" size={36} color={c.pink} />
-          </View>
+          <BrandHeader left="none" right="none" hero climate={false} />
           <TitleFlourish title="Welcome to Sweet Crust" subtitle="Enter your mobile number to continue." />
         </FadeIn>
 
@@ -305,15 +301,6 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1, justifyContent: "center", gap: space.md },
   brandBlock: { alignItems: "center", gap: 4, marginBottom: space.sm },
-  logoCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    marginBottom: 8,
-  },
   panel: {
     borderRadius: radius.xl,
     padding: space.lg,

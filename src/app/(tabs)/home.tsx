@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Image,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -10,21 +11,24 @@ import {
   View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 
 import { ProductTile } from "@/components/commerce/ProductTile";
 import { Banner } from "@/components/ui/Banner";
+import { ClimateHeaderBar, ClimateWeatherBadge } from "@/components/ui/ClimateHeaderBar";
 import { Icon } from "@/components/ui/Icon";
 import { OfflineBanner, isNetworkError } from "@/components/ui/OfflineBanner";
 import { Screen } from "@/components/ui/Screen";
 import { Skeleton, SkeletonCircle } from "@/components/ui/Skeleton";
 import { useApp } from "@/context/app";
+import { useClimate } from "@/context/climate";
 import { useThemeColors } from "@/context/theme";
 import { useCartQty } from "@/hooks/use-cart-qty";
 import { useLayout } from "@/hooks/use-layout";
 import { useTabBarClearance } from "@/hooks/use-tab-bar-clearance";
 import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { mediaUrl } from "@/lib/media";
 import { colors, float, fonts, radius, space } from "@/lib/theme";
 import type { Product, ShopCard } from "@/lib/types";
 
@@ -34,9 +38,33 @@ type PromoBanner = {
   title: string;
   subtitle?: string | null;
   image_url?: string;
+  link_type?: string | null;
   link_value?: string | null;
+  shop_user_id?: number | null;
   colors?: [string, string];
 };
+
+/** Retailer theme banners store colors as `theme:#A,#B` instead of a photo URL. */
+function themeColorsFromUrl(url?: string | null): [string, string] | null {
+  const u = (url || "").trim();
+  if (!u.startsWith("theme:")) return null;
+  const parts = u
+    .slice(6)
+    .split(",")
+    .map((s) => decodeURIComponent(s.trim()))
+    .filter(Boolean);
+  if (!parts.length) return null;
+  return [parts[0], parts[1] || parts[0]];
+}
+
+function bannerVisual(b: PromoBanner, fallback: [string, string]) {
+  const fromTheme = themeColorsFromUrl(b.image_url);
+  if (fromTheme) return { kind: "theme" as const, colors: fromTheme };
+  if (b.colors?.length) return { kind: "theme" as const, colors: b.colors };
+  const uri = mediaUrl(api.baseUrl, b.image_url);
+  if (uri && /^https?:\/\//i.test(uri)) return { kind: "image" as const, uri };
+  return { kind: "theme" as const, colors: fallback };
+}
 
 export default function HomeScreen() {
   const tc = useThemeColors();
@@ -46,6 +74,7 @@ export default function HomeScreen() {
   const bannerW = layout.width - layout.pagePad * 2;
   const { t } = useI18n();
   const { user, home, error, cartCount, refresh, refreshHome } = useApp();
+  const { mood, syncFromAddresses } = useClimate();
   const cartQty = useCartQty();
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
@@ -54,18 +83,33 @@ export default function HomeScreen() {
   const [bannerIdx, setBannerIdx] = useState(0);
   const [favIds, setFavIds] = useState<Record<number, boolean>>({});
   const [shops, setShops] = useState<ShopCard[]>([]);
+  const [sweetieTip, setSweetieTip] = useState(false);
   const skeleton = !home && !error;
+
+  const loadAddressLine = useCallback(async () => {
+    try {
+      const rows = await api.customer.addresses();
+      const list = Array.isArray(rows) ? rows : [];
+      const def = list.find((a: { is_default?: boolean }) => a.is_default) || list[0];
+      if (def?.line1) {
+        setAddressLine([def.line1, def.city || def.pincode].filter(Boolean).join(", "));
+      } else {
+        setAddressLine("Set delivery address");
+      }
+    } catch {
+      /* keep current */
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadAddressLine();
+      void syncFromAddresses();
+    }, [loadAddressLine, syncFromAddresses]),
+  );
 
   useEffect(() => {
     refreshHome().catch(() => undefined);
-    api.customer
-      .addresses()
-      .then((rows) => {
-        const list = Array.isArray(rows) ? rows : [];
-        const def = list.find((a: { is_default?: boolean }) => a.is_default) || list[0];
-        if (def?.line1) setAddressLine([def.line1, def.city || def.pincode].filter(Boolean).join(", "));
-      })
-      .catch(() => undefined);
     api.customer
       .notifications(true)
       .then((n) => setUnread(Array.isArray(n) ? n.length : 0))
@@ -106,6 +150,42 @@ export default function HomeScreen() {
     router.push(query ? { pathname: "/(tabs)/catalog", params: { q: query } } : "/(tabs)/catalog");
   }
 
+  async function onBannerPress(b: PromoBanner) {
+    const type = String(b.link_type || "").toLowerCase();
+    const value = String(b.link_value || "").trim();
+    const shopId = Number(value || b.shop_user_id || 0);
+
+    if (type === "url" && value) {
+      const url = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+      await Linking.openURL(url).catch(() => undefined);
+      return;
+    }
+    if (type === "coupon" && value) {
+      try {
+        await api.customer.applyCoupon(value);
+        await refresh();
+      } catch {
+        /* still open cart */
+      }
+      router.push("/cart");
+      return;
+    }
+    if ((type === "shop" || type === "order") && shopId) {
+      router.push(`/shops/${shopId}`);
+      return;
+    }
+    if (type === "shop" || type === "order") {
+      router.push("/(tabs)/catalog");
+      return;
+    }
+    if (value && /^\d+$/.test(value)) {
+      router.push(`/product/${value}` as never);
+      return;
+    }
+    if (value) goSearch(value);
+    else goSearch();
+  }
+
   async function toggleFav(p: Product) {
     try {
       await api.customer.favorite(p.id);
@@ -120,80 +200,70 @@ export default function HomeScreen() {
   const surface = tc.paper;
 
   return (
-    <Screen>
+    <Screen pad={false} edges={[]}>
+      {/* Sticky season header — clipped so clouds never spill onto the banner */}
+      <View style={styles.stickyHeader}>
+        <ClimateHeaderBar compact>
+          <View style={styles.header}>
+            <Pressable style={styles.loc} onPress={() => router.push("/addresses")}>
+              <Icon name="location" size={20} color={tc.pink} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.locLine, { color: ink }]} numberOfLines={1}>
+                  {addressLine}
+                </Text>
+                <Text style={[styles.climateLine, { color: mood.accent }]} numberOfLines={1}>
+                  {mood.label}
+                  {mood.tempC != null ? ` · ${Math.round(mood.tempC)}°` : ""}
+                </Text>
+              </View>
+              <Icon name="chevron-down" size={16} color={muted} />
+            </Pressable>
+            <ClimateWeatherBadge />
+            <Pressable
+              style={[styles.iconBtn, { backgroundColor: surface, borderColor: tc.border }]}
+              onPress={() => router.push("/notifications")}
+            >
+              <Icon name="notifications-outline" size={22} color={ink} />
+              {unread > 0 ? <View style={styles.dot} /> : null}
+            </Pressable>
+          </View>
+
+          <View style={[styles.searchWrap, { backgroundColor: "rgba(255,255,255,0.94)", borderColor: tc.border }]}>
+            <Icon name="search" size={18} color={muted} />
+            <TextInput
+              style={[styles.search, { color: ink }]}
+              value={search}
+              onChangeText={setSearch}
+              placeholder={t("search")}
+              placeholderTextColor={muted}
+              returnKeyType="search"
+              onSubmitEditing={() => goSearch()}
+            />
+            <Pressable onPress={() => goSearch()} hitSlop={10} accessibilityLabel="Voice search">
+              <Icon name="mic-outline" size={20} color={tc.pink} />
+            </Pressable>
+            {cartCount > 0 ? (
+              <Pressable style={[styles.cartChip, { backgroundColor: tc.pink }]} onPress={() => router.push("/cart")}>
+                <Icon name="bag-handle" size={16} color="#FFF" />
+                <Text style={styles.cartChipText}>{cartCount}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </ClimateHeaderBar>
+      </View>
+
       <ScrollView
+        style={styles.scrollFlex}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scroll, { paddingBottom: clearance + 8 }]}
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingBottom: clearance + layout.fabClearance + 12 },
+        ]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tc.pink} />}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Location + bell (mockup customer-04) */}
-        <View style={styles.header}>
-          <Pressable style={styles.loc} onPress={() => router.push("/addresses")}>
-            <Icon name="location" size={20} color={tc.pink} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.locLine, { color: ink }]} numberOfLines={1}>
-                {addressLine}
-              </Text>
-            </View>
-            <Icon name="chevron-down" size={16} color={muted} />
-          </Pressable>
-          <Pressable style={[styles.iconBtn, { backgroundColor: surface, borderColor: tc.border }]} onPress={() => router.push("/notifications")}>
-            <Icon name="notifications-outline" size={22} color={ink} />
-            {unread > 0 ? <View style={styles.dot} /> : null}
-          </Pressable>
-        </View>
-
-        {/* Search + mic */}
-        <View style={[styles.searchWrap, { backgroundColor: surface, borderColor: tc.border }]}>
-          <Icon name="search" size={18} color={muted} />
-          <TextInput
-            style={[styles.search, { color: ink }]}
-            value={search}
-            onChangeText={setSearch}
-            placeholder={t("search")}
-            placeholderTextColor={muted}
-            returnKeyType="search"
-            onSubmitEditing={() => goSearch()}
-          />
-          <Pressable
-            onPress={() => goSearch()}
-            hitSlop={10}
-            accessibilityLabel="Voice search"
-          >
-            <Icon name="mic-outline" size={20} color={tc.pink} />
-          </Pressable>
-          {cartCount > 0 ? (
-            <Pressable style={[styles.cartChip, { backgroundColor: tc.pink }]} onPress={() => router.push("/cart")}>
-              <Icon name="bag-handle" size={16} color="#FFF" />
-              <Text style={styles.cartChipText}>{cartCount}</Text>
-            </Pressable>
-          ) : null}
-        </View>
-
-        <OfflineBanner
-          fullScreen
-          offline={Boolean(error && isNetworkError(error))}
-          error={error}
-          onRetry={() => refresh()}
-        />
-        {error && !isNetworkError(error) ? <Banner text={error} tone="danger" /> : null}
-
-        {skeleton ? (
-          <View style={{ gap: 12 }}>
-            <Skeleton height={150} borderRadius={radius.lg} />
-            <View style={{ flexDirection: "row", gap: 12, justifyContent: "center" }}>
-              <SkeletonCircle size={68} />
-              <SkeletonCircle size={68} />
-              <SkeletonCircle size={68} />
-              <SkeletonCircle size={68} />
-            </View>
-            <Skeleton height={200} borderRadius={radius.lg} />
-          </View>
-        ) : null}
-
         {!skeleton && banners.length ? (
-          <View>
+          <View style={[styles.bannerWrap, { paddingHorizontal: layout.pagePad }]}>
             <ScrollView
               horizontal
               pagingEnabled
@@ -202,45 +272,45 @@ export default function HomeScreen() {
                 setBannerIdx(Math.round(e.nativeEvent.contentOffset.x / bannerW));
               }}
             >
-              {banners.map((b) => (
-                <Pressable
-                  key={String(b.id)}
-                  style={[styles.bannerCard, { width: bannerW, height: layout.bannerH }]}
-                  onPress={() => {
-                    if (b.link_value) router.push(`/product/${b.link_value}` as never);
-                    else goSearch();
-                  }}
-                >
-                  {b.image_url ? (
-                    <>
-                      <Image source={{ uri: b.image_url }} style={styles.bannerImg} resizeMode="cover" />
-                      <LinearGradient
-                        colors={["transparent", "rgba(0,0,0,0.55)"]}
-                        style={styles.bannerShade}
-                      >
-                        <Text style={styles.bannerTitle} numberOfLines={1}>
-                          {b.title}
-                        </Text>
-                        {b.subtitle ? (
-                          <Text style={styles.bannerSub} numberOfLines={1}>
-                            {b.subtitle}
+              {banners.map((b) => {
+                const visual = bannerVisual(b, [tc.coral, tc.pink]);
+                return (
+                  <Pressable
+                    key={String(b.id)}
+                    style={[styles.bannerCard, { width: bannerW, height: layout.bannerH }]}
+                    onPress={() => void onBannerPress(b)}
+                  >
+                    {visual.kind === "image" ? (
+                      <>
+                        <Image source={{ uri: visual.uri }} style={styles.bannerImg} resizeMode="cover" />
+                        <LinearGradient
+                          colors={["transparent", "rgba(0,0,0,0.55)"]}
+                          style={styles.bannerShade}
+                        >
+                          <Text style={styles.bannerTitle} numberOfLines={1}>
+                            {b.title}
                           </Text>
-                        ) : null}
+                          {b.subtitle ? (
+                            <Text style={styles.bannerSub} numberOfLines={1}>
+                              {b.subtitle}
+                            </Text>
+                          ) : null}
+                        </LinearGradient>
+                      </>
+                    ) : (
+                      <LinearGradient
+                        colors={visual.colors}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.bannerImg}
+                      >
+                        <Text style={styles.bannerTitle}>{b.title}</Text>
+                        {b.subtitle ? <Text style={styles.bannerSub}>{b.subtitle}</Text> : null}
                       </LinearGradient>
-                    </>
-                  ) : (
-                    <LinearGradient
-                      colors={b.colors || [tc.coral, tc.pink]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.bannerImg}
-                    >
-                      <Text style={styles.bannerTitle}>{b.title}</Text>
-                      {b.subtitle ? <Text style={styles.bannerSub}>{b.subtitle}</Text> : null}
-                    </LinearGradient>
-                  )}
-                </Pressable>
-              ))}
+                    )}
+                  </Pressable>
+                );
+              })}
             </ScrollView>
             <View style={styles.dots}>
               {banners.map((b, i) => (
@@ -257,33 +327,62 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
+        <View style={[styles.body, { paddingHorizontal: layout.pagePad }]}>
+        <OfflineBanner
+          fullScreen
+          offline={Boolean(error && isNetworkError(error))}
+          error={error}
+          onRetry={() => refresh()}
+        />
+        {error && !isNetworkError(error) ? <Banner text={error} tone="danger" /> : null}
+
+        {skeleton ? (
+          <View style={{ gap: 8 }}>
+            <Skeleton height={140} borderRadius={radius.lg} />
+            <View style={{ flexDirection: "row", gap: 10, justifyContent: "center" }}>
+              <SkeletonCircle size={60} />
+              <SkeletonCircle size={60} />
+              <SkeletonCircle size={60} />
+              <SkeletonCircle size={60} />
+            </View>
+            <Skeleton height={180} borderRadius={radius.lg} />
+          </View>
+        ) : null}
+
         {!skeleton && shops.length ? (
-          <View style={{ marginTop: 8, marginBottom: 4 }}>
-            <Text style={[styles.section, { color: ink, fontSize: 20 }]}>Shops near you</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 8 }}>
-              {shops.map((s) => (
-                <Pressable
-                  key={s.user_id}
-                  style={[styles.shopCard, { backgroundColor: surface, borderColor: tc.border }]}
-                  onPress={() => router.push(`/shops/${s.user_id}`)}
-                >
-                  {s.shop_logo_url ? (
-                    <Image source={{ uri: s.shop_logo_url }} style={styles.shopLogo} />
-                  ) : (
-                    <View style={[styles.shopLogo, { backgroundColor: tc.creamDeep, alignItems: "center", justifyContent: "center" }]}>
-                      <Text style={{ fontFamily: fonts.display, fontSize: 20, color: ink }}>
-                        {(s.shop_name || "S").slice(0, 1)}
-                      </Text>
+          <View>
+            <Text style={[styles.section, { color: ink, fontSize: layout.sectionSize }]}>Shops near you</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.shopRow}>
+              {shops.map((s) => {
+                const logo = mediaUrl(api.baseUrl, s.shop_logo_url);
+                const initial = (s.shop_name || "S").slice(0, 1).toUpperCase();
+                const closed = s.is_open === false;
+                return (
+                  <Pressable
+                    key={s.user_id}
+                    style={[styles.shopCard, { width: layout.shopW }]}
+                    onPress={() => router.push(`/shops/${s.user_id}`)}
+                  >
+                    <View style={styles.shopLogoWrap}>
+                      {logo ? (
+                        <Image source={{ uri: logo }} style={[styles.shopLogo, closed && styles.shopLogoDim]} />
+                      ) : (
+                        <View style={[styles.shopLogo, styles.shopLogoFallback, closed && styles.shopLogoDim]}>
+                          <Text style={[styles.shopInitial, { color: tc.pink }]}>{initial}</Text>
+                        </View>
+                      )}
+                      {closed ? (
+                        <View style={styles.shopClosedBadge}>
+                          <Text style={styles.shopClosedText}>Closed</Text>
+                        </View>
+                      ) : null}
                     </View>
-                  )}
-                  <Text style={[styles.shopName, { color: ink }]} numberOfLines={1}>
-                    {s.shop_name}
-                  </Text>
-                  <Text style={{ color: muted, fontFamily: fonts.body, fontSize: 11 }} numberOfLines={1}>
-                    {s.village || s.area || s.city || "Local shop"} · {s.product_count ?? 0}
-                  </Text>
-                </Pressable>
-              ))}
+                    <Text style={[styles.shopName, { color: ink }]} numberOfLines={1}>
+                      {s.shop_name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
           </View>
         ) : null}
@@ -307,8 +406,8 @@ export default function HomeScreen() {
                     },
                   ]}
                 >
-                  {c.image_url ? (
-                    <Image source={{ uri: c.image_url }} style={styles.catImg} resizeMode="cover" />
+                  {mediaUrl(api.baseUrl, c.image_url) ? (
+                    <Image source={{ uri: mediaUrl(api.baseUrl, c.image_url) }} style={styles.catImg} resizeMode="cover" />
                   ) : (
                     <Text style={[styles.catLetter, { color: tc.ink }]}>{c.name.slice(0, 1).toUpperCase()}</Text>
                   )}
@@ -364,11 +463,19 @@ export default function HomeScreen() {
                 <Icon name="chevron-forward" size={14} color={tc.pink} />
               </Pressable>
             </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              decelerationRate="fast"
+              snapToInterval={layout.tileW + layout.tileGap}
+              snapToAlignment="start"
+              contentContainerStyle={[styles.rail, { gap: layout.tileGap }]}
+            >
               {rail.items.slice(0, 12).map((p) => (
                 <ProductTile
                   key={p.id}
                   product={p}
+                  compact
                   width={layout.tileW}
                   qty={cartQty.qtyOf(p.id)}
                   busy={cartQty.busyId === p.id}
@@ -398,34 +505,56 @@ export default function HomeScreen() {
         {user?.name ? (
           <Text style={[styles.hi, { color: muted }]}>Hi, {user.name.split(" ")[0]} — baked with love</Text>
         ) : null}
+        </View>
       </ScrollView>
 
-      {/* Sweetie FAB — customer-04 */}
-      <Pressable style={[styles.fab, { bottom: clearance }]} onPress={() => router.push("/(tabs)/chat")}>
-        {!layout.narrow ? (
-          <View style={[styles.fabBubble, { backgroundColor: tc.blushSoft, borderColor: tc.blush }]}>
+      {/* Sweetie FAB — sits in reserved bottom clearance; tip dismissible */}
+      <View style={[styles.fabDock, { bottom: clearance + 4 }]} pointerEvents="box-none">
+        {sweetieTip && !layout.narrow ? (
+          <Pressable
+            style={[styles.fabBubble, { backgroundColor: tc.blushSoft, borderColor: tc.blush }]}
+            onPress={() => setSweetieTip(false)}
+            accessibilityLabel="Dismiss tip"
+          >
             <Text style={[styles.fabText, { color: tc.chocolate }]} numberOfLines={2}>
               {t("sweetieHi")}
             </Text>
-          </View>
+          </Pressable>
         ) : null}
-        <View style={[styles.fabCircle, { backgroundColor: tc.pink }]}>
+        <Pressable
+          style={[styles.fabCircle, { backgroundColor: tc.pink }]}
+          onPress={() => router.push("/(tabs)/chat")}
+          accessibilityLabel="Chat with Sweetie"
+        >
           <Icon name="sparkles" size={22} color="#FFF" />
-        </View>
-      </Pressable>
+        </Pressable>
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { gap: space.sm, paddingTop: 2 },
-  header: { flexDirection: "row", alignItems: "center", gap: 8 },
+  stickyHeader: {
+    zIndex: 40,
+    elevation: 40,
+    overflow: "hidden",
+    backgroundColor: "transparent",
+  },
+  scrollFlex: { flex: 1, backgroundColor: "transparent" },
+  scroll: { gap: 0, paddingTop: 0, flexGrow: 1, backgroundColor: "transparent" },
+  body: { gap: 8, paddingTop: 8 },
+  bannerWrap: {
+    marginTop: 10,
+    paddingBottom: 4,
+  },
+  header: { flexDirection: "row", alignItems: "center", gap: 6 },
   loc: { flex: 1, flexDirection: "row", alignItems: "center", gap: 6 },
   locLine: { fontFamily: fonts.bold, fontSize: 15, color: colors.ink },
+  climateLine: { fontFamily: fonts.medium, fontSize: 11, marginTop: 1 },
   iconBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: colors.white,
     borderWidth: 1,
     borderColor: colors.border,
@@ -434,8 +563,8 @@ const styles = StyleSheet.create({
   },
   dot: {
     position: "absolute",
-    top: 10,
-    right: 11,
+    top: 8,
+    right: 9,
     width: 8,
     height: 8,
     borderRadius: 4,
@@ -448,16 +577,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     backgroundColor: colors.white,
-    borderRadius: radius.xl,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: space.md,
-    paddingVertical: 4,
-    ...float,
+    paddingVertical: 2,
   },
   search: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 8,
     fontSize: 14,
     fontFamily: fonts.body,
     color: colors.ink,
@@ -499,10 +627,10 @@ const styles = StyleSheet.create({
   bannerTitle: { fontFamily: fonts.display, fontSize: 18, color: colors.white },
   bannerSub: { fontFamily: fonts.body, fontSize: 12, color: "#FFE4D4", marginTop: 2 },
   bannerCake: { position: "absolute", right: 12, top: 16, opacity: 0.9 },
-  dots: { flexDirection: "row", justifyContent: "center", gap: 5, marginTop: 6 },
+  dots: { flexDirection: "row", justifyContent: "center", gap: 5, marginTop: 4 },
   dotPage: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.border },
   dotPageOn: { backgroundColor: colors.chocolate, width: 14 },
-  catRow: { gap: space.sm, paddingVertical: 2, paddingRight: 8 },
+  catRow: { gap: 8, paddingVertical: 0, paddingRight: 8 },
   catItem: { alignItems: "center" },
   catCircle: {
     alignItems: "center",
@@ -527,7 +655,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: space.sm,
-    padding: space.md,
+    paddingVertical: 10,
+    paddingHorizontal: space.md,
     borderWidth: 1,
     borderColor: "rgba(233,116,142,0.25)",
     borderRadius: radius.lg,
@@ -543,21 +672,67 @@ const styles = StyleSheet.create({
   customTitle: { fontFamily: fonts.bold, fontSize: 15, color: colors.ink },
   customSub: { fontFamily: fonts.body, fontSize: 12, color: colors.muted, marginTop: 3 },
   customCta: { fontFamily: fonts.bold, fontSize: 13, color: colors.pink },
-  shopCard: {
-    width: 120,
-    padding: 10,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    gap: 4,
+  shopRow: {
+    gap: 14,
+    paddingVertical: 8,
+    paddingRight: 4,
+    alignItems: "flex-start",
   },
-  shopLogo: { width: 48, height: 48, borderRadius: radius.md },
-  shopName: { fontFamily: fonts.bold, fontSize: 13 },
-  railBlock: { gap: space.sm },
+  shopCard: {
+    height: 108,
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 8,
+  },
+  shopLogoWrap: {
+    width: 72,
+    height: 72,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shopLogo: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.95)",
+  },
+  shopLogoDim: { opacity: 0.55 },
+  shopLogoFallback: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.blushSoft,
+  },
+  shopInitial: { fontFamily: fonts.display, fontSize: 28 },
+  shopName: {
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    textAlign: "center",
+    lineHeight: 16,
+    height: 16,
+    width: "100%",
+  },
+  shopClosedBadge: {
+    position: "absolute",
+    bottom: -2,
+    alignSelf: "center",
+    backgroundColor: "rgba(61, 42, 50, 0.78)",
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  shopClosedText: {
+    fontFamily: fonts.medium,
+    fontSize: 9,
+    color: "#FFF",
+  },
+  railBlock: { gap: 8, marginTop: 4 },
   railHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   section: { fontFamily: fonts.display, color: colors.ink },
   viewAllBtn: { flexDirection: "row", alignItems: "center", gap: 2 },
   seeAll: { fontFamily: fonts.bold, fontSize: 13, color: colors.pink },
-  rail: { gap: space.sm, paddingRight: space.sm },
+  rail: { paddingVertical: 2 },
   empty: {
     backgroundColor: colors.white,
     borderRadius: radius.lg,
@@ -576,7 +751,13 @@ const styles = StyleSheet.create({
   },
   emptyBtnText: { fontFamily: fonts.bold, color: colors.white },
   hi: { fontFamily: fonts.medium, fontSize: 13, color: colors.muted, textAlign: "center" },
-  fab: { position: "absolute", right: 14, alignItems: "flex-end", gap: 8 },
+  fabDock: {
+    position: "absolute",
+    right: 14,
+    alignItems: "flex-end",
+    gap: 8,
+    zIndex: 4,
+  },
   fabCircle: {
     width: 50,
     height: 50,
@@ -593,7 +774,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderWidth: 1,
     borderColor: colors.blush,
-    maxWidth: 140,
+    maxWidth: 148,
   },
   fabText: { fontFamily: fonts.medium, fontSize: 10, color: colors.chocolate, lineHeight: 13 },
 });

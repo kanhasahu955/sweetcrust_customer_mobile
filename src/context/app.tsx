@@ -21,7 +21,15 @@ import type { AuthUser, CartSummary, Order, Product } from "@/lib/types";
 
 type HomeFeed = {
   categories?: { id: number; name: string; image_url?: string | null }[];
-  banners?: { id: number; title: string; subtitle?: string | null; image_url?: string; link_value?: string | null }[];
+  banners?: {
+    id: number;
+    title: string;
+    subtitle?: string | null;
+    image_url?: string;
+    link_type?: string | null;
+    link_value?: string | null;
+    shop_user_id?: number | null;
+  }[];
   bestsellers?: Product[];
   freshly_baked?: Product[];
   trending?: Product[];

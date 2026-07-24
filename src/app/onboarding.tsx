@@ -87,6 +87,7 @@ export default function OnboardingScreen() {
         <BrandHeader
           left="none"
           compact
+          climate={false}
           right={
             <FloatPress onPress={finish}>
               <Text style={[styles.skip, { color: c.pink }]}>Skip</Text>

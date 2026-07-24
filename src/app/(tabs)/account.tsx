@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 
 import { Banner } from "@/components/ui/Banner";
@@ -34,26 +35,40 @@ type MenuItem = {
   title: string;
   icon: string;
   href: string;
-  danger?: boolean;
 };
 
-const MENU: MenuItem[] = [
-  { title: "Saved addresses", icon: "location-outline", href: "/addresses" },
-  { title: "My orders", icon: "bag-handle-outline", href: "/(tabs)/orders" },
-  { title: "Favorites", icon: "heart-outline", href: "/favorites" },
-  { title: "Payment history", icon: "wallet-outline", href: "/wallet" },
-  { title: "Returns", icon: "return-down-back-outline", href: "/returns" },
-  { title: "Chat history", icon: "chatbubbles-outline", href: "/(tabs)/chat" },
-  { title: "Call history", icon: "call-outline", href: "/calls" },
-  { title: "Notifications", icon: "notifications-outline", href: "/notifications" },
-  { title: "Language", icon: "language-outline", href: "/language" },
-  { title: "Appearance", icon: "moon-outline", href: "/appearance" },
-  { title: "Help & support", icon: "help-circle-outline", href: "/help" },
-  { title: "Gift hampers", icon: "gift-outline", href: "/gift-hamper" },
-  { title: "Subscriptions", icon: "calendar-outline", href: "/subscriptions" },
-  { title: "Refer & earn", icon: "people-outline", href: "/referral" },
-  { title: "Corporate orders", icon: "business-outline", href: "/corporate" },
-  { title: "Custom cakes", icon: "color-palette", href: "/custom-cake" },
+const SECTIONS: { title: string; items: MenuItem[] }[] = [
+  {
+    title: "Shopping",
+    items: [
+      { title: "Saved addresses", icon: "location-outline", href: "/addresses" },
+      { title: "My orders", icon: "bag-handle-outline", href: "/(tabs)/orders" },
+      { title: "Favorites", icon: "heart-outline", href: "/favorites" },
+      { title: "Payment history", icon: "wallet-outline", href: "/wallet" },
+      { title: "Returns", icon: "return-down-back-outline", href: "/returns" },
+    ],
+  },
+  {
+    title: "Support",
+    items: [
+      { title: "Chat history", icon: "chatbubbles-outline", href: "/(tabs)/chat" },
+      { title: "Call history", icon: "call-outline", href: "/calls" },
+      { title: "Notifications", icon: "notifications-outline", href: "/notifications" },
+      { title: "Help & support", icon: "help-circle-outline", href: "/help" },
+    ],
+  },
+  {
+    title: "More",
+    items: [
+      { title: "Language", icon: "language-outline", href: "/language" },
+      { title: "Appearance", icon: "moon-outline", href: "/appearance" },
+      { title: "Gift hampers", icon: "gift-outline", href: "/gift-hamper" },
+      { title: "Subscriptions", icon: "calendar-outline", href: "/subscriptions" },
+      { title: "Refer & earn", icon: "people-outline", href: "/referral" },
+      { title: "Corporate orders", icon: "business-outline", href: "/corporate" },
+      { title: "Custom cakes", icon: "color-palette", href: "/custom-cake" },
+    ],
+  },
 ];
 
 export default function AccountScreen() {
@@ -90,7 +105,7 @@ export default function AccountScreen() {
         setRefreshing(false);
       }
     },
-    [setUser]
+    [setUser],
   );
 
   useEffect(() => {
@@ -131,36 +146,45 @@ export default function AccountScreen() {
   }
 
   const displayName = name || user?.name || "Your account";
+  const initial = (displayName || "U").slice(0, 1).toUpperCase();
 
   return (
     <Screen>
+      <BrandHeader left="none" right="none" />
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: clearance }]}
+        contentContainerStyle={[styles.content, { paddingBottom: clearance + 8 }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => void load("pull")} tintColor={c.pink} />
         }
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <BrandHeader left="none" right="none" tagline="MADE WITH LOVE" compact />
-
-        <View style={[styles.profileCard, { backgroundColor: c.paper, borderColor: c.blush }]}>
-          <View style={[styles.avatar, { backgroundColor: c.blushSoft }]}>
-            <Text style={[styles.avatarText, { color: c.pink }]}>
-              {(displayName || "U").slice(0, 1).toUpperCase()}
-            </Text>
+        <LinearGradient
+          colors={["#FFFFFF", "#FFF5F7", "#F3F7FB"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.profileCard, { borderColor: "rgba(233,116,142,0.35)" }]}
+        >
+          <View style={[styles.avatar, { backgroundColor: c.pink }]}>
+            <Text style={styles.avatarText}>{initial}</Text>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.heroName, { color: c.ink }]}>{displayName}</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[styles.heroName, { color: c.ink }]} numberOfLines={1}>
+              {displayName}
+            </Text>
             <View style={styles.phoneRow}>
-              <View style={[styles.phoneIcon, { backgroundColor: c.blushSoft }]}>
+              <View style={[styles.phoneIcon, { backgroundColor: "rgba(255,255,255,0.85)" }]}>
                 <Icon name="call" size={12} color={c.pink} />
               </View>
-              <Text style={[styles.heroMeta, { color: c.cocoa }]}>{user?.phone || ""}</Text>
+              <Text style={[styles.heroMeta, { color: c.cocoa }]} numberOfLines={1}>
+                {user?.phone || "Add phone"}
+              </Text>
             </View>
           </View>
-          <Icon name="cafe" size={36} color={c.pink} />
-        </View>
+          <View style={[styles.badgeCafe, { backgroundColor: "rgba(255,255,255,0.85)" }]}>
+            <Icon name="cafe" size={22} color={c.pink} />
+          </View>
+        </LinearGradient>
 
         {error ? <Banner text={error} tone="danger" /> : null}
         {msg ? <Banner text={msg} tone="ok" /> : null}
@@ -171,22 +195,27 @@ export default function AccountScreen() {
           <Stat label="Saved" value={String(summary?.favorites?.length ?? 0)} c={c} />
         </View>
 
-        <Pressable onPress={() => setEditOpen((v) => !v)}>
+        <Pressable
+          onPress={() => setEditOpen((v) => !v)}
+          style={[styles.editToggleBtn, { backgroundColor: c.blushSoft, borderColor: "rgba(233,116,142,0.3)" }]}
+        >
+          <Icon name={editOpen ? "chevron-up" : "create-outline"} size={16} color={c.pink} />
           <Text style={[styles.editToggle, { color: c.pink }]}>
             {editOpen ? "Hide profile edit" : "Edit name & email"}
           </Text>
         </Pressable>
+
         {editOpen ? (
-          <View style={styles.editBox}>
+          <View style={[styles.editBox, { backgroundColor: "#FFFFFF", borderColor: c.border }]}>
             <TextInput
-              style={[styles.input, { backgroundColor: c.paper, borderColor: c.border, color: c.ink }]}
+              style={[styles.input, { backgroundColor: c.cream, borderColor: c.border, color: c.ink }]}
               value={name}
               onChangeText={setName}
               placeholder="Your name"
               placeholderTextColor={c.muted}
             />
             <TextInput
-              style={[styles.input, { backgroundColor: c.paper, borderColor: c.border, color: c.ink }]}
+              style={[styles.input, { backgroundColor: c.cream, borderColor: c.border, color: c.ink }]}
               value={email}
               onChangeText={setEmail}
               placeholder="Email (optional)"
@@ -195,7 +224,7 @@ export default function AccountScreen() {
               keyboardType="email-address"
             />
             <Pressable
-              style={[styles.btn, { backgroundColor: c.chocolate }]}
+              style={[styles.btn, { backgroundColor: c.pink }]}
               onPress={saveProfile}
               disabled={busy}
             >
@@ -204,18 +233,31 @@ export default function AccountScreen() {
           </View>
         ) : null}
 
-        {MENU.map((item) => (
-          <LinkRow
-            key={item.title}
-            title={item.title}
-            icon={item.icon}
-            onPress={() => router.push(item.href as never)}
-            c={c}
-          />
+        {SECTIONS.map((section) => (
+          <View key={section.title} style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: c.muted }]}>{section.title}</Text>
+            <View style={[styles.sectionCard, { backgroundColor: "#FFFFFF", borderColor: c.border }]}>
+              {section.items.map((item, idx) => (
+                <LinkRow
+                  key={item.title}
+                  title={item.title}
+                  icon={item.icon}
+                  last={idx === section.items.length - 1}
+                  onPress={() => router.push(item.href as never)}
+                  c={c}
+                />
+              ))}
+            </View>
+          </View>
         ))}
 
-        <Pressable style={[styles.logout, { borderColor: c.pink }]} onPress={logout}>
-          <Icon name="log-out-outline" size={18} color={c.danger} />
+        <Pressable
+          style={[styles.logout, { backgroundColor: "#FFF5F5", borderColor: "rgba(214,69,69,0.35)" }]}
+          onPress={logout}
+        >
+          <View style={[styles.linkIcon, { backgroundColor: "rgba(214,69,69,0.1)" }]}>
+            <Icon name="log-out-outline" size={18} color={c.danger} />
+          </View>
           <Text style={[styles.logoutText, { color: c.danger }]}>Logout</Text>
           <Icon name="chevron-forward" size={18} color={c.danger} />
         </Pressable>
@@ -239,11 +281,14 @@ function Stat({
     <View
       style={[
         styles.stat,
-        { backgroundColor: accent ? c.blushSoft : c.paper, borderColor: c.border },
+        {
+          backgroundColor: accent ? c.blushSoft : "#FFFFFF",
+          borderColor: accent ? "rgba(233,116,142,0.35)" : c.border,
+        },
       ]}
     >
       <Text style={[styles.statLabel, { color: c.muted }]}>{label}</Text>
-      <Text style={[styles.statValue, { color: c.ink }]} numberOfLines={1}>
+      <Text style={[styles.statValue, { color: accent ? c.pink : c.ink }]} numberOfLines={1}>
         {value}
       </Text>
     </View>
@@ -254,11 +299,13 @@ function LinkRow({
   title,
   icon,
   onPress,
+  last,
   c,
 }: {
   title: string;
   icon: string;
   onPress: () => void;
+  last?: boolean;
   c: ReturnType<typeof useThemeColors>;
 }) {
   return (
@@ -266,10 +313,13 @@ function LinkRow({
       onPress={onPress}
       style={({ pressed }) => [
         styles.link,
-        { backgroundColor: c.paper, borderColor: c.border, opacity: pressed ? 0.85 : 1 },
+        !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.border },
+        { opacity: pressed ? 0.75 : 1 },
       ]}
     >
-      <Icon name={icon} size={20} color={c.pink} />
+      <View style={[styles.linkIcon, { backgroundColor: c.blushSoft }]}>
+        <Icon name={icon} size={18} color={c.pink} />
+      </View>
       <Text style={[styles.linkTitle, { color: c.ink }]}>{title}</Text>
       <Icon name="chevron-forward" size={18} color={c.muted} />
     </Pressable>
@@ -277,27 +327,33 @@ function LinkRow({
 }
 
 const styles = StyleSheet.create({
-  content: { gap: space.sm },
+  content: { gap: 12 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   profileCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: space.md,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
-    padding: space.md,
-    marginBottom: space.sm,
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 16,
+    shadowColor: "#4A6280",
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
   },
   avatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.9)",
   },
-  avatarText: { fontFamily: fonts.display, fontSize: 24 },
-  heroName: { fontFamily: fonts.bold, fontSize: 18 },
-  phoneRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  avatarText: { fontFamily: fonts.display, fontSize: 26, color: "#FFF" },
+  heroName: { fontFamily: fonts.display, fontSize: 22, letterSpacing: -0.3 },
+  phoneRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
   phoneIcon: {
     width: 22,
     height: 22,
@@ -305,46 +361,97 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  heroMeta: { fontFamily: fonts.body, fontSize: 13 },
+  heroMeta: { fontFamily: fonts.body, fontSize: 13, flexShrink: 1 },
+  badgeCafe: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   statRow: { flexDirection: "row", gap: 8 },
   stat: {
     flex: 1,
-    borderRadius: radius.md,
+    borderRadius: 16,
     borderWidth: 1,
-    padding: space.sm,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    shadowColor: "#6A849C",
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   statLabel: { fontFamily: fonts.medium, fontSize: 11 },
-  statValue: { fontFamily: fonts.bold, fontSize: 15, marginTop: 2 },
-  editToggle: { fontFamily: fonts.bold, fontSize: 13, marginVertical: 4 },
-  editBox: { gap: 8 },
+  statValue: { fontFamily: fonts.bold, fontSize: 16, marginTop: 4, letterSpacing: -0.2 },
+  editToggleBtn: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  editToggle: { fontFamily: fonts.bold, fontSize: 13 },
+  editBox: {
+    gap: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 12,
+  },
   input: {
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: 14,
     paddingHorizontal: space.md,
     paddingVertical: 12,
     fontFamily: fonts.body,
   },
-  btn: { borderRadius: radius.md, paddingVertical: 12, alignItems: "center" },
-  btnText: { color: "#FFF", fontFamily: fonts.bold },
+  btn: { borderRadius: 14, paddingVertical: 13, alignItems: "center" },
+  btnText: { color: "#FFF", fontFamily: fonts.bold, fontSize: 14 },
+  section: { gap: 8 },
+  sectionTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    marginLeft: 4,
+  },
+  sectionCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden",
+    shadowColor: "#6A849C",
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
   link: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    paddingVertical: 14,
-    paddingHorizontal: space.md,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+  },
+  linkIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   linkTitle: { flex: 1, fontFamily: fonts.medium, fontSize: 15 },
   logout: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: radius.md,
+    borderRadius: 18,
     borderWidth: 1,
     paddingVertical: 14,
-    paddingHorizontal: space.md,
-    marginTop: space.sm,
+    paddingHorizontal: 14,
+    marginTop: 4,
   },
   logoutText: { flex: 1, fontFamily: fonts.bold, fontSize: 15 },
 });

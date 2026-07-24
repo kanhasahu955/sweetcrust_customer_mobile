@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Platform, StatusBar as RNStatusBar, View } from "react-native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { useFonts } from "expo-font";
 import {
@@ -17,6 +17,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { AnimatedSplash } from "@/components/AnimatedSplash";
 import { AppProvider, useApp } from "@/context/app";
+import { ClimateProvider } from "@/context/climate";
 import { ThemeProvider, useTheme } from "@/context/theme";
 import { I18nProvider } from "@/lib/i18n";
 import { colors } from "@/lib/theme";
@@ -57,6 +58,7 @@ function AuthGate({ children }: { children: ReactNode }) {
           <ActivityIndicator color={colors.ember} />
         </View>
       ) : null}
+      {/* Splash stays full-screen */}
       {!flashDone ? (
         <AnimatedSplash tagline="Made with love" onDone={() => setFlashDone(true)} />
       ) : null}
@@ -85,6 +87,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider>
       <AppProvider>
+        <ClimateProvider>
         <I18nProvider>
         <RootStatusBar />
         <AuthGate>
@@ -101,6 +104,7 @@ export default function RootLayout() {
             <Stack.Screen name="onboarding" />
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="product/[id]" options={{ animation: "fade_from_bottom" }} />
+            <Stack.Screen name="shops/[id]" options={{ animation: "fade_from_bottom" }} />
             <Stack.Screen name="cart" options={{ animation: "fade_from_bottom" }} />
             <Stack.Screen name="checkout" options={{ animation: "fade_from_bottom" }} />
             <Stack.Screen name="orders/[id]" />
@@ -128,6 +132,7 @@ export default function RootLayout() {
           </Stack>
         </AuthGate>
         </I18nProvider>
+        </ClimateProvider>
       </AppProvider>
       </ThemeProvider>
     </GestureHandlerRootView>
@@ -136,5 +141,12 @@ export default function RootLayout() {
 
 function RootStatusBar() {
   const { dark } = useTheme();
+  useEffect(() => {
+    // Season headers draw under the status bar (same as Home).
+    if (Platform.OS === "android") {
+      RNStatusBar.setTranslucent(true);
+      RNStatusBar.setBackgroundColor("transparent");
+    }
+  }, []);
   return <StatusBar style={dark ? "light" : "dark"} />;
 }

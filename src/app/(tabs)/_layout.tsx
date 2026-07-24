@@ -43,6 +43,14 @@ export default function TabsLayout() {
         headerShown: false,
         animation: "none",
         sceneStyle: { backgroundColor: colors.cream, paddingBottom: 0 },
+        // Prevent default white tab strip under the custom wavy dock
+        tabBarStyle: {
+          position: "absolute",
+          backgroundColor: "transparent",
+          borderTopWidth: 0,
+          elevation: 0,
+          shadowOpacity: 0,
+        },
       }}
     >
       <Tabs.Screen name="home" options={{ title: "Home" }} />

@@ -4,7 +4,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
@@ -53,10 +52,8 @@ export default function WalletScreen() {
   const c = useThemeColors();
   const [data, setData] = useState<WalletData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [amount, setAmount] = useState("");
 
   const load = useCallback(async () => {
     setError(null);
@@ -77,25 +74,12 @@ export default function WalletScreen() {
     }, [load])
   );
 
-  async function addMoney() {
-    const value = Number(amount);
-    if (!Number.isFinite(value) || value <= 0) {
-      setError("Enter a valid amount");
-      return;
-    }
-    setBusy(true);
+  function addMoneyInfo() {
+    // ponytail: backend walletAdd credits without PSP — block free top-ups until Razorpay wallet flow ships
     setError(null);
-    setMsg(null);
-    try {
-      const res = (await api.customer.walletAdd(value)) as WalletData;
-      setData(res);
-      setMsg(`₹${value} added to wallet`);
-      setAmount("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Add money failed");
-    } finally {
-      setBusy(false);
-    }
+    setMsg(
+      "Wallet top-up via UPI/Razorpay is coming soon. Use COD or Razorpay at checkout, or ask support to credit your wallet.",
+    );
   }
 
   return (
@@ -213,21 +197,15 @@ export default function WalletScreen() {
             })
           )}
 
-          <TextInput
-            style={[styles.amountInput, { borderColor: c.border, backgroundColor: c.paper, color: c.ink }]}
-            value={amount}
-            onChangeText={setAmount}
-            keyboardType="number-pad"
-            placeholder="Amount to add"
-            placeholderTextColor={c.muted}
-          />
-          <FloatPress
-            style={[styles.addBtn, { backgroundColor: c.chocolate }]}
-            onPress={addMoney}
-            disabled={busy}
-          >
-            <Icon name="add-circle-outline" size={20} color="#FFF" />
-            <Text style={styles.addBtnText}>{busy ? "Adding…" : "Add Money"}</Text>
+          <View style={[styles.topupCard, { backgroundColor: c.blushSoft, borderColor: c.blush }]}>
+            <Icon name="information-circle-outline" size={20} color={c.chocolate} />
+            <Text style={[styles.topupNote, { color: c.ink }]}>
+              Secure wallet top-up is not enabled yet. Your balance updates from refunds and bakery credits.
+            </Text>
+          </View>
+          <FloatPress style={[styles.addBtn, { backgroundColor: c.chocolate }]} onPress={addMoneyInfo}>
+            <Icon name="chatbubble-ellipses-outline" size={20} color="#FFF" />
+            <Text style={styles.addBtnText}>How to add money</Text>
           </FloatPress>
 
           <TrustStrip />
@@ -240,14 +218,15 @@ export default function WalletScreen() {
 const styles = StyleSheet.create({
   skel: { gap: space.md, paddingTop: space.sm },
   content: { gap: space.sm, paddingBottom: 48 },
-  amountInput: {
+  topupCard: {
+    flexDirection: "row",
+    gap: 10,
     borderWidth: 1,
     borderRadius: radius.md,
-    paddingHorizontal: space.md,
-    paddingVertical: 12,
-    fontFamily: fonts.body,
-    fontSize: 16,
+    padding: space.md,
+    alignItems: "flex-start",
   },
+  topupNote: { flex: 1, fontFamily: fonts.body, fontSize: 13, lineHeight: 19 },
   balanceCard: {
     borderRadius: radius.xl,
     padding: space.lg,

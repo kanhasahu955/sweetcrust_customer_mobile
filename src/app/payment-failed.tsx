@@ -1,125 +1,206 @@
-import { StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BrandHeader } from "@/components/ui/BrandHeader";
 import { FloatPress } from "@/components/ui/FloatPress";
 import { Icon } from "@/components/ui/Icon";
 import { Screen } from "@/components/ui/Screen";
 import { useThemeColors } from "@/context/theme";
-import { fonts, radius, space } from "@/lib/theme";
+import { fonts, space } from "@/lib/theme";
 import { money } from "@/lib/types";
 
 export default function PaymentFailedScreen() {
   const router = useRouter();
   const c = useThemeColors();
-  const params = useLocalSearchParams<{ amount?: string; reason?: string }>();
+  const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ amount?: string; reason?: string; orderId?: string }>();
   const amount = Number(params.amount || 0);
   const reason = params.reason || "Payment could not be completed";
+  const orderId = Number(params.orderId || 0);
+
+  function retryPay() {
+    if (orderId) {
+      router.replace(`/orders/${orderId}`);
+      return;
+    }
+    router.replace("/checkout");
+  }
 
   return (
     <Screen>
       <BrandHeader left="back" right="none" />
 
-      <View style={styles.center}>
-        <View style={[styles.xOuter, { backgroundColor: c.danger }]}>
-          <Icon name="close" size={40} color="#FFF" />
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.content, { paddingBottom: 28 + insets.bottom }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.hero}>
+          <View style={[styles.glow, { backgroundColor: "rgba(233,116,142,0.12)" }]} />
+          <View style={[styles.xRing, { borderColor: "rgba(214,69,69,0.22)", backgroundColor: "#FFF" }]}>
+            <LinearGradient colors={[c.danger, "#E9748E"]} style={styles.xInner}>
+              <Icon name="close" size={36} color="#FFF" />
+            </LinearGradient>
+          </View>
+          <Text style={[styles.title, { color: c.ink }]}>Payment Failed</Text>
+          <View style={styles.flourish}>
+            <View style={[styles.line, { backgroundColor: c.pink }]} />
+            <Icon name="heart" size={11} color={c.pink} />
+            <View style={[styles.line, { backgroundColor: c.pink }]} />
+          </View>
+          <Text style={[styles.sub, { color: c.muted }]}>
+            We couldn't complete your payment. Please try again.
+          </Text>
         </View>
-        <Text style={[styles.title, { color: c.chocolate }]}>Payment Failed</Text>
-        <Text style={[styles.sub, { color: c.muted }]}>
-          We couldn't complete your payment. Please try again.
-        </Text>
 
-        <View style={[styles.card, { backgroundColor: c.paper, borderColor: c.border }]}>
+        <View style={[styles.card, { borderColor: c.border }]}>
+          {orderId ? (
+            <View style={styles.row}>
+              <Text style={[styles.rowLabel, { color: c.muted }]}>Order</Text>
+              <Text style={[styles.rowVal, { color: c.ink }]}>#{orderId}</Text>
+            </View>
+          ) : null}
           {amount > 0 ? (
             <View style={styles.row}>
               <Text style={[styles.rowLabel, { color: c.muted }]}>Order Amount</Text>
-              <Text style={[styles.rowVal, { color: c.ink }]}>{money(amount)}</Text>
+              <Text style={[styles.rowVal, { color: c.pink }]}>{money(amount)}</Text>
             </View>
           ) : null}
           <View style={styles.row}>
             <Text style={[styles.rowLabel, { color: c.muted }]}>Reason</Text>
-            <Text style={[styles.rowVal, { color: c.danger, flexShrink: 1, textAlign: "right" }]}>{reason}</Text>
+            <Text style={[styles.reason, { color: c.danger }]}>{reason}</Text>
           </View>
         </View>
 
-        <View style={[styles.codRow, { backgroundColor: c.successSoft, borderColor: c.success }]}>
-          <Icon name="cash-outline" size={20} color={c.success} />
+        <View style={[styles.codCard, { backgroundColor: c.successSoft, borderColor: "rgba(46,160,100,0.35)" }]}>
+          <View style={[styles.codIcon, { backgroundColor: "#FFFFFF" }]}>
+            <Icon name="cash-outline" size={18} color={c.success} />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.codTitle, { color: c.success }]}>Cash on Delivery available</Text>
             <Text style={[styles.codSub, { color: c.muted }]}>
-              You can still place your order and pay when it arrives.
+              {orderId
+                ? "Open the order and pay with Razorpay, or place a new COD order from cart."
+                : "You can still place your order and pay when it arrives."}
             </Text>
           </View>
         </View>
-      </View>
 
-      <FloatPress
-        style={[styles.primary, { backgroundColor: c.coral }]}
-        onPress={() => router.replace("/checkout")}
-      >
-        <Icon name="refresh" size={18} color="#FFF" />
-        <Text style={styles.primaryText}>Retry Payment</Text>
-      </FloatPress>
+        <FloatPress onPress={retryPay}>
+          <LinearGradient colors={[c.pink, "#D45A78"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primary}>
+            <Icon name="refresh" size={18} color="#FFF" />
+            <Text style={styles.primaryText}>{orderId ? "Pay this order" : "Retry Payment"}</Text>
+          </LinearGradient>
+        </FloatPress>
 
-      <FloatPress
-        style={[styles.secondary, { backgroundColor: c.paper, borderColor: c.coral }]}
-        onPress={() => router.replace("/checkout")}
-      >
-        <Icon name="card-outline" size={18} color={c.coral} />
-        <Text style={[styles.secondaryText, { color: c.coral }]}>Choose Another Method</Text>
-      </FloatPress>
+        <FloatPress
+          style={[styles.secondary, { backgroundColor: "#FFFFFF", borderColor: c.pink }]}
+          onPress={() => router.replace(orderId ? `/orders/${orderId}` : "/checkout")}
+        >
+          <Icon name="card-outline" size={18} color={c.pink} />
+          <Text style={[styles.secondaryText, { color: c.pink }]}>
+            {orderId ? "Open order details" : "Choose Another Method"}
+          </Text>
+        </FloatPress>
 
-      <Text style={[styles.footer, { color: c.muted }]}>Thank you for choosing SweetCrust Bakery</Text>
+        <Text style={[styles.footer, { color: c.muted }]}>Thank you for choosing SweetCrust Bakery</Text>
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: "center", paddingTop: space.lg, gap: space.sm },
-  xOuter: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+  scroll: { flex: 1 },
+  content: { flexGrow: 1, gap: 14, paddingTop: 8 },
+  hero: { alignItems: "center", paddingTop: space.md, gap: 8, marginBottom: 4 },
+  glow: {
+    position: "absolute",
+    top: 4,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+  },
+  xRing: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    borderWidth: 8,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: space.sm,
+    marginBottom: 4,
   },
-  title: { fontFamily: fonts.display, fontSize: 28 },
+  xInner: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: { fontFamily: fonts.display, fontSize: 28, letterSpacing: -0.3 },
+  flourish: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    width: 120,
+    marginVertical: 2,
+  },
+  line: { flex: 1, height: 1.5, borderRadius: 1 },
   sub: {
     fontFamily: fonts.body,
     textAlign: "center",
-    paddingHorizontal: space.lg,
-    marginBottom: space.md,
+    paddingHorizontal: space.md,
+    fontSize: 14,
+    lineHeight: 20,
   },
   card: {
     width: "100%",
-    borderRadius: radius.lg,
-    padding: space.lg,
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
-    gap: space.md,
+    gap: 12,
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#6A849C",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
-  row: { flexDirection: "row", justifyContent: "space-between", gap: space.md },
-  rowLabel: { fontFamily: fonts.body },
-  rowVal: { fontFamily: fonts.bold },
-  codRow: {
+  row: { flexDirection: "row", justifyContent: "space-between", gap: 12, alignItems: "flex-start" },
+  rowLabel: { fontFamily: fonts.body, fontSize: 14 },
+  rowVal: { fontFamily: fonts.bold, fontSize: 14 },
+  reason: { fontFamily: fonts.bold, fontSize: 13, flexShrink: 1, textAlign: "right", lineHeight: 18 },
+  codCard: {
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    borderRadius: radius.lg,
+    borderRadius: 20,
     borderWidth: 1,
-    padding: space.md,
-    marginTop: space.sm,
+    padding: 14,
+  },
+  codIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   codTitle: { fontFamily: fonts.bold, fontSize: 14 },
-  codSub: { fontFamily: fonts.body, fontSize: 12, marginTop: 2 },
+  codSub: { fontFamily: fonts.body, fontSize: 12, marginTop: 2, lineHeight: 17 },
   primary: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    borderRadius: radius.lg,
+    borderRadius: 18,
     paddingVertical: 16,
+    shadowColor: "#E9748E",
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
   },
   primaryText: { fontFamily: fonts.bold, color: "#FFF", fontSize: 16 },
   secondary: {
@@ -127,16 +208,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    marginTop: space.sm,
-    borderRadius: radius.lg,
+    borderRadius: 18,
     paddingVertical: 14,
     borderWidth: 1.5,
   },
-  secondaryText: { fontFamily: fonts.bold },
+  secondaryText: { fontFamily: fonts.bold, fontSize: 15 },
   footer: {
     textAlign: "center",
     fontFamily: fonts.displaySoft,
-    marginVertical: space.lg,
+    marginTop: 8,
     fontSize: 13,
   },
 });

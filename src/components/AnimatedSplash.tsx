@@ -1,65 +1,92 @@
-import { useEffect } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef } from "react";
+import { Image, StyleSheet, useWindowDimensions, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { StatusBar } from "expo-status-bar";
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from "react-native-reanimated";
 
-import { colors, fonts } from "@/lib/theme";
+const APP_LOGO = require("../../assets/images/sweetcrust-logo.png");
 
 type Props = {
   tagline?: string;
   onDone: () => void;
 };
 
-/** Short branded splash — cream/pink SweetCrust (stable in Expo Go). */
-export function AnimatedSplash({ tagline = "Made with love", onDone }: Props) {
+/** Short branded splash — full SweetCrust mark. */
+export function AnimatedSplash({ onDone }: Props) {
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+  const { width } = useWindowDimensions();
+  const logoSize = Math.min(width * 0.72, 300);
+
+  const opacity = useSharedValue(0);
+  const scale = useSharedValue(0.96);
+  const exit = useSharedValue(1);
+
   useEffect(() => {
-    const t = setTimeout(() => onDone(), 1400);
-    return () => clearTimeout(t);
-  }, [onDone]);
+    const finish = () => onDoneRef.current();
+    opacity.value = withTiming(1, { duration: 450, easing: Easing.out(Easing.cubic) });
+    scale.value = withTiming(1, { duration: 650, easing: Easing.out(Easing.cubic) });
+    exit.value = withDelay(
+      1600,
+      withTiming(0, { duration: 320, easing: Easing.in(Easing.cubic) }, (finished) => {
+        if (finished) runOnJS(finish)();
+      }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const rootStyle = useAnimatedStyle(() => ({ opacity: exit.value }));
+  const markStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
 
   return (
-    <View style={styles.root}>
-      <LinearGradient colors={["#FFF9F5", "#FFF0F2", "#F8EDE6"]} style={StyleSheet.absoluteFill} />
-      <View style={styles.glow} />
-      <Text style={styles.brand}>SweetCrust</Text>
-      <Text style={styles.bakery}>BAKERY</Text>
-      <Text style={styles.tag}>{tagline}</Text>
-    </View>
+    <Animated.View style={[styles.root, rootStyle]}>
+      <StatusBar style="light" />
+      <LinearGradient
+        colors={["#2A1712", "#1A100C", "#0E0907"]}
+        locations={[0, 0.55, 1]}
+        start={{ x: 0.2, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <View style={styles.stage}>
+        <Animated.View style={[styles.mark, markStyle]}>
+          <Image
+            source={APP_LOGO}
+            style={{ width: logoSize, height: logoSize }}
+            resizeMode="contain"
+            accessibilityLabel="SweetCrust Bakery"
+          />
+        </Animated.View>
+      </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
-    ...StyleSheet.absoluteFill,
+    flex: 1,
+    backgroundColor: "#0E0907",
+  },
+  stage: {
+    flex: 1,
+    width: "100%",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 50,
+    paddingHorizontal: 24,
   },
-  glow: {
-    position: "absolute",
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: colors.pink,
-    opacity: 0.12,
-  },
-  brand: {
-    fontFamily: fonts.display,
-    fontSize: 36,
-    color: colors.chocolate,
-    letterSpacing: -0.8,
-  },
-  bakery: {
-    fontFamily: fonts.bold,
-    fontSize: 12,
-    letterSpacing: 3,
-    color: colors.pink,
-    marginTop: 4,
-  },
-  tag: {
-    marginTop: 12,
-    fontFamily: fonts.medium,
-    fontSize: 13,
-    letterSpacing: 0.8,
-    color: colors.muted,
+  mark: {
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

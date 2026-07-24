@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import {
   ActivityIndicator,
+  Linking,
   RefreshControl,
   ScrollView,
   Share,
@@ -181,12 +182,20 @@ export default function TrackOrderScreen() {
   async function callRider() {
     setBusy(true);
     try {
-      await api.customer.startCall({
+      const direct = String(rider?.phone || "").replace(/[^\d+]/g, "");
+      if (direct) {
+        await Linking.openURL(`tel:${direct}`);
+        return;
+      }
+      const call = (await api.customer.startCall({
         order_id: orderId,
         callee_id: rider?.id,
         target: rider?.id ? "rider" : "bakery",
-      });
-      router.push("/calls");
+        call_type: "phone",
+      })) as { masked_number?: string | null };
+      const phone = String(call.masked_number || "").replace(/[^\d+]/g, "");
+      if (phone) await Linking.openURL(`tel:${phone}`);
+      else router.push("/calls");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Call failed");
     } finally {

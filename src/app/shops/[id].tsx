@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
-  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
@@ -12,8 +11,11 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { ProductTile } from "@/components/commerce/ProductTile";
+import { BrandHeader } from "@/components/ui/BrandHeader";
 import { Screen } from "@/components/ui/Screen";
+import { useApp } from "@/context/app";
 import { useThemeColors } from "@/context/theme";
+import { useCartQty } from "@/hooks/use-cart-qty";
 import { useTabBarClearance } from "@/hooks/use-tab-bar-clearance";
 import { api } from "@/lib/api";
 import { fonts, radius, space } from "@/lib/theme";
@@ -36,8 +38,11 @@ export default function ShopStorefrontScreen() {
   const shopId = Number(id);
   const router = useRouter();
   const tc = useThemeColors();
+  const { cartCount } = useApp();
   const clearance = useTabBarClearance(16);
+  const cartQty = useCartQty();
   const [shop, setShop] = useState<ShopDetail | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -46,6 +51,15 @@ export default function ShopStorefrontScreen() {
     setError(null);
     const data = (await api.customer.shop(shopId)) as ShopDetail;
     setShop(data);
+    let list = Array.isArray(data.products) ? data.products : [];
+    if (!list.length) {
+      const catalog = await api.customer.products({
+        supplier_user_id: shopId,
+        page_size: 60,
+      });
+      list = (catalog.items || []) as Product[];
+    }
+    setProducts(list);
   }, [shopId]);
 
   useEffect(() => {
@@ -56,16 +70,12 @@ export default function ShopStorefrontScreen() {
 
   return (
     <Screen>
-      <View style={styles.top}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
-          <Text style={[styles.back, { color: tc.ink }]}>← Back</Text>
-        </Pressable>
-      </View>
+      <BrandHeader left="back" right="cart" cartCount={cartCount} />
       {error ? <Text style={[styles.error, { color: tc.danger || "#B00020" }]}>{error}</Text> : null}
       {!shop && !error ? <ActivityIndicator color={tc.pink} style={{ marginTop: 40 }} /> : null}
       {shop ? (
         <FlatList
-          data={shop.products || []}
+          data={products}
           keyExtractor={(p) => String(p.id)}
           numColumns={2}
           columnWrapperStyle={{ gap: 10 }}
@@ -89,7 +99,16 @@ export default function ShopStorefrontScreen() {
               {shop.shop_logo_url ? (
                 <Image source={{ uri: shop.shop_logo_url }} style={styles.logo} />
               ) : (
-                <View style={[styles.logo, { backgroundColor: tc.stone || "#F3EDE6", alignItems: "center", justifyContent: "center" }]}>
+                <View
+                  style={[
+                    styles.logo,
+                    {
+                      backgroundColor: tc.stone || "#F3EDE6",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    },
+                  ]}
+                >
                   <Text style={{ fontFamily: fonts.display, fontSize: 28, color: tc.ink }}>
                     {(shop.shop_name || "S").slice(0, 1)}
                   </Text>
@@ -99,7 +118,8 @@ export default function ShopStorefrontScreen() {
                 <Text style={[styles.title, { color: tc.ink }]}>{shop.shop_name}</Text>
                 {place ? <Text style={{ color: tc.muted, fontFamily: fonts.body }}>{place}</Text> : null}
                 <Text style={{ color: tc.muted, fontFamily: fonts.medium, marginTop: 4 }}>
-                  {shop.is_open === false ? "Closed" : "Open"} · {shop.product_count ?? (shop.products || []).length} items
+                  {shop.is_open === false ? "Closed" : "Open"} ·{" "}
+                  {shop.product_count ?? products.length} items
                 </Text>
               </View>
             </View>
@@ -111,7 +131,15 @@ export default function ShopStorefrontScreen() {
           }
           renderItem={({ item }) => (
             <View style={{ flex: 1 }}>
-              <ProductTile product={item} onPress={() => router.push(`/product/${item.id}`)} />
+              <ProductTile
+                product={item}
+                onPress={() => router.push(`/product/${item.id}`)}
+                onAdd={() => cartQty.add(item).catch(() => undefined)}
+                onInc={() => cartQty.inc(item).catch(() => undefined)}
+                onDec={() => cartQty.dec(item).catch(() => undefined)}
+                qty={cartQty.qtyOf(item.id)}
+                busy={cartQty.busyId === item.id}
+              />
             </View>
           )}
         />
@@ -121,9 +149,7 @@ export default function ShopStorefrontScreen() {
 }
 
 const styles = StyleSheet.create({
-  top: { paddingHorizontal: space.md, paddingBottom: 8 },
-  back: { fontFamily: fonts.bold, fontSize: 15 },
-  error: { paddingHorizontal: space.md, fontFamily: fonts.medium },
+  error: { fontFamily: fonts.medium, marginBottom: 8 },
   header: {
     flexDirection: "row",
     gap: 12,

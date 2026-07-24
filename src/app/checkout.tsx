@@ -11,7 +11,9 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import * as WebBrowser from "expo-web-browser";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { FadeIn } from "@/components/FadeIn";
 import { Banner } from "@/components/ui/Banner";
 import { BrandHeader, TitleFlourish } from "@/components/ui/BrandHeader";
@@ -20,10 +22,19 @@ import { Icon } from "@/components/ui/Icon";
 import { Screen } from "@/components/ui/Screen";
 import { useApp } from "@/context/app";
 import { useThemeColors } from "@/context/theme";
-import { api, DEFAULT_DELIVERY_COORDS, getStoredUser } from "@/lib/api";
+import type { AddressDetails } from "@/lib/address";
+import { api, DEFAULT_DELIVERY_COORDS, getStoredUser, isRealMobile, normalizePhone } from "@/lib/api";
 import type { AddressIn, CheckoutIn } from "@/lib/api-client";
-import { float, fonts, radius, space } from "@/lib/theme";
+import { waitForPaymentStatus } from "@/lib/payment";
+import { fonts, radius, space } from "@/lib/theme";
 import { money, type Address } from "@/lib/types";
+
+type CheckoutSettings = {
+  delivery_slots?: string[];
+  latitude?: number | null;
+  longitude?: number | null;
+  upi_id?: string | null;
+};
 
 function tomorrowISO() {
   const d = new Date();
@@ -33,6 +44,14 @@ function tomorrowISO() {
 
 function formatSlot(s: string) {
   return s.replace("-", " – ");
+}
+
+function payLabel(m: string, walletBalance: number) {
+  const key = String(m).toLowerCase();
+  if (key === "wallet") return `Wallet · ${money(walletBalance)}`;
+  if (key === "cod") return "Cash on delivery";
+  if (key === "razorpay") return "UPI / Card";
+  return m.replace(/_/g, " ");
 }
 
 function normalizeAddresses(raw: unknown): Address[] {
@@ -49,6 +68,7 @@ function normalizeAddresses(raw: unknown): Address[] {
 export default function CheckoutScreen() {
   const router = useRouter();
   const c = useThemeColors();
+  const insets = useSafeAreaInsets();
   const { refreshCart } = useApp();
   const user = getStoredUser();
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -56,13 +76,12 @@ export default function CheckoutScreen() {
   const [slots, setSlots] = useState<string[]>([]);
   const [slot, setSlot] = useState("");
   const [deliveryDate, setDeliveryDate] = useState(tomorrowISO());
-  const [phone, setPhone] = useState(user?.phone || "");
+  const [phone, setPhone] = useState(() => (isRealMobile(user?.phone || "") ? String(user?.phone) : ""));
   const [instructions, setInstructions] = useState("");
   const [contactless, setContactless] = useState(false);
   const [methods, setMethods] = useState<string[]>([]);
   const [paymentMethod, setPaymentMethod] = useState("");
   const [walletBalance, setWalletBalance] = useState(0);
-  const [upiId, setUpiId] = useState("");
   const [cartTotal, setCartTotal] = useState(0);
   const [itemCount, setItemCount] = useState(0);
   const [coords, setCoords] = useState(DEFAULT_DELIVERY_COORDS);
@@ -70,14 +89,12 @@ export default function CheckoutScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showNewAddress, setShowNewAddress] = useState(false);
+  const [pickedAddr, setPickedAddr] = useState<AddressDetails | null>(null);
   const [newAddr, setNewAddr] = useState({
     full_name: user?.name || "",
     phone: user?.phone || "",
-    line1: "",
-    pincode: "",
-    city: "",
-    state: "",
   });
+  const [couponCode, setCouponCode] = useState<string | null>(null);
   const selectedIdRef = useRef<number | null>(null);
   selectedIdRef.current = selectedId;
 
@@ -95,34 +112,40 @@ export default function CheckoutScreen() {
       list[0];
     setSelectedId(keep.id);
     setShowNewAddress(false);
+    setPhone((prev) => (isRealMobile(prev) ? prev : isRealMobile(keep.phone || "") ? String(keep.phone) : ""));
   }, []);
 
   const loadCheckout = useCallback(async () => {
     setError(null);
     try {
-      const [addrs, pay, cart, wallet, settings] = await Promise.all([
+      const [addrs, pay, cart, wallet, settingsRaw] = await Promise.all([
         api.customer.addresses(),
         api.payments.methods(),
         api.customer.cart(),
         api.customer.wallet().catch(() => ({ balance: 0 })),
-        api.customer.settings().catch(() => ({ delivery_slots: [] as string[] })),
+        api.customer.settings().catch(() => ({ delivery_slots: [] }) as CheckoutSettings),
       ]);
+      const settings = settingsRaw as CheckoutSettings;
 
       applyAddresses(addrs, selectedIdRef.current);
 
       const balance = Number((wallet as { balance?: number }).balance || 0);
       setWalletBalance(balance);
 
-      const deliverySlots = Array.isArray(settings?.delivery_slots)
+      const deliverySlots = Array.isArray(settings.delivery_slots)
         ? settings.delivery_slots.filter(Boolean)
         : [];
       setSlots(deliverySlots);
       setSlot((prev) => (prev && deliverySlots.includes(prev) ? prev : deliverySlots[0] || ""));
-      if (settings?.latitude != null && settings?.longitude != null) {
+      if (settings.latitude != null && settings.longitude != null) {
         setCoords({ latitude: Number(settings.latitude), longitude: Number(settings.longitude) });
       }
 
-      const m = (pay.methods || []).filter(Boolean);
+      // Only real rails: Razorpay (covers UPI/cards), COD, wallet — no fake confirmPayment UPI
+      const allowed = new Set(["razorpay", "cod", "wallet"]);
+      const m = (pay.methods || []).filter((x) => allowed.has(String(x).toLowerCase()));
+      if (!m.includes("razorpay")) m.unshift("razorpay");
+      if (!m.includes("cod")) m.push("cod");
       const withWallet = balance > 0 && !m.includes("wallet") ? [...m, "wallet"] : m;
       if (withWallet.length) {
         setMethods(withWallet);
@@ -134,17 +157,18 @@ export default function CheckoutScreen() {
               ? "wallet"
               : withWallet.includes("razorpay")
                 ? "razorpay"
-                : withWallet.includes("upi")
-                  ? "upi"
-                  : withWallet[0]
+                : withWallet[0]
         );
       }
-      if (pay.upi_id) setUpiId(pay.upi_id);
-      else if (settings?.upi_id) setUpiId(String(settings.upi_id));
 
-      const cartData = cart as { final_total?: number; items?: unknown[] };
+      const cartData = cart as {
+        final_total?: number;
+        items?: unknown[];
+        coupon_code?: string | null;
+      };
       setCartTotal(Number(cartData.final_total || 0));
       setItemCount((cartData.items || []).length);
+      setCouponCode(cartData.coupon_code ? String(cartData.coupon_code) : null);
       if (!(cartData.items || []).length) setError("Cart is empty");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Checkout load failed");
@@ -162,8 +186,9 @@ export default function CheckoutScreen() {
   const selectedAddr = addresses.find((a) => a.id === selectedId) || null;
   const newAddrReady =
     newAddr.full_name.trim().length > 0 &&
-    newAddr.line1.trim().length > 0 &&
-    newAddr.pincode.trim().length >= 6;
+    Boolean(pickedAddr?.address_line?.trim()) &&
+    Number(pickedAddr?.latitude) !== 0 &&
+    Number(pickedAddr?.longitude) !== 0;
 
   const canPay = useMemo(
     () =>
@@ -174,13 +199,24 @@ export default function CheckoutScreen() {
     [phone, slot, paymentMethod, showNewAddress, newAddrReady, selectedId]
   );
 
+  async function onPickAddress(next: AddressDetails) {
+    setPickedAddr(next);
+    setCoords({ latitude: next.latitude, longitude: next.longitude });
+  }
+
   async function createAddress(): Promise<number> {
+    if (!pickedAddr) throw new Error("Pick an address from search");
     const body: AddressIn = {
-      ...newAddr,
+      full_name: newAddr.full_name.trim(),
+      phone: newAddr.phone.trim() || phone.trim(),
+      line1: pickedAddr.address_line,
+      city: pickedAddr.city || "",
+      state: pickedAddr.state || "",
+      pincode: pickedAddr.pincode || "",
       label: "Home",
       is_default: true,
-      latitude: coords.latitude,
-      longitude: coords.longitude,
+      latitude: pickedAddr.latitude,
+      longitude: pickedAddr.longitude,
     };
     const res = (await api.customer.addAddress(body)) as { address: Address };
     const addr = { ...res.address, id: Number(res.address.id) };
@@ -198,45 +234,93 @@ export default function CheckoutScreen() {
     setError(null);
     try {
       let addressId = selectedId;
+      let checkLat: number | null = null;
+      let checkLng: number | null = null;
       if (showNewAddress || !addressId) {
         if (!newAddrReady) {
-          setError("Select a delivery address or fill name, line, and pincode");
+          setError("Search and pick a delivery address with name");
           return;
         }
+        checkLat = Number(pickedAddr?.latitude);
+        checkLng = Number(pickedAddr?.longitude);
+      } else if (selectedAddr?.latitude != null && selectedAddr?.longitude != null) {
+        checkLat = Number(selectedAddr.latitude);
+        checkLng = Number(selectedAddr.longitude);
+        setCoords({
+          latitude: checkLat,
+          longitude: checkLng,
+        });
+      }
+
+      if (checkLat != null && checkLng != null && Number.isFinite(checkLat) && Number.isFinite(checkLng)) {
+        const zone = await api.customer.deliveryCheck(checkLat, checkLng);
+        if (zone?.deliverable === false) {
+          throw new Error(zone.detail || "Sorry, we don’t deliver to this location yet.");
+        }
+      }
+
+      if (showNewAddress || !addressId) {
         addressId = await createAddress();
       }
+
+      const method = String(paymentMethod || "").toLowerCase();
+      if (!["razorpay", "cod", "wallet"].includes(method)) {
+        throw new Error("Choose Razorpay, COD, or Wallet");
+      }
+      if (method === "wallet" && walletBalance < cartTotal) {
+        throw new Error("Insufficient wallet balance");
+      }
+      if (!isRealMobile(phone)) {
+        throw new Error("Enter a valid 10-digit mobile number");
+      }
+      const customerPhone = normalizePhone(phone.trim());
 
       const body: CheckoutIn = {
         address_id: addressId,
         delivery_date: deliveryDate,
         delivery_slot: slot,
-        customer_phone: phone.trim(),
+        customer_phone: customerPhone,
         delivery_instructions: instructions.trim() || null,
         contactless,
         payment_method: paymentMethod,
+        coupon_code: couponCode,
       };
 
       const { order } = await api.customer.checkout(body);
-
-      if (paymentMethod === "razorpay") {
-        const rz = await api.payments.razorpayCreate(order.id);
-        const url = rz.short_url || rz.payment_link?.short_url;
-        if (url) await WebBrowser.openBrowserAsync(url);
-      } else if (paymentMethod !== "cod" && paymentMethod !== "wallet") {
-        await api.customer.confirmPayment({
-          order_id: order.id,
-          method: paymentMethod,
-          upi_id: paymentMethod.includes("upi") ? upiId || undefined : undefined,
-          simulate_failure: false,
-        });
-      }
-
-      await refreshCart();
       const amount = String(
         (order as { final_amount?: number; total_amount?: number }).final_amount ??
           (order as { total_amount?: number }).total_amount ??
-          ""
+          cartTotal
       );
+
+      if (method === "razorpay") {
+        const rz = await api.payments.razorpayCreate(order.id);
+        const url = rz.short_url || rz.payment_link?.short_url;
+        if (!url) throw new Error("Payment link unavailable");
+        await WebBrowser.openBrowserAsync(url);
+        const status = await waitForPaymentStatus(order.id);
+        await refreshCart();
+        if (status === "paid") {
+          router.replace({
+            pathname: "/payment-success",
+            params: { orderId: String(order.id), amount },
+          });
+          return;
+        }
+        if (status === "failed") {
+          router.replace({
+            pathname: "/payment-failed",
+            params: { reason: "Payment failed or cancelled", amount, orderId: String(order.id) },
+          });
+          return;
+        }
+        // Webhook may still be catching up — send to order, not fake success.
+        router.replace(`/orders/${order.id}`);
+        return;
+      }
+
+      // COD / wallet — server marks method at checkout; no fake UPI confirm
+      await refreshCart();
       router.replace({
         pathname: "/payment-success",
         params: { orderId: String(order.id), amount },
@@ -263,8 +347,13 @@ export default function CheckoutScreen() {
   return (
     <Screen>
       <BrandHeader left="back" right="none" />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <TitleFlourish title="Checkout" subtitle="Delivery & payment" />
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.content, { paddingBottom: 96 + insets.bottom }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <TitleFlourish title="Delivery & payment" />
 
         <FadeIn>
           <SectionCard icon="location-outline" title="Delivery Address" c={c}>
@@ -285,6 +374,9 @@ export default function CheckoutScreen() {
                     setSelectedId(a.id);
                     setShowNewAddress(false);
                     setError(null);
+                    if (isRealMobile(a.phone || "") && !isRealMobile(phone)) {
+                      setPhone(String(a.phone));
+                    }
                   }}
                 >
                   <View style={styles.addrPickRow}>
@@ -325,7 +417,7 @@ export default function CheckoutScreen() {
                 setSelectedId(null);
               }}
             >
-              <Text style={[styles.changeLink, { color: c.coral, marginTop: 0 }]}>
+              <Text style={[styles.changeLink, { color: c.pink, marginTop: 0 }]}>
                 {showNewAddress ? "Adding new address below" : "+ Add New Address"}
               </Text>
             </FloatPress>
@@ -344,13 +436,11 @@ export default function CheckoutScreen() {
           </SectionCard>
 
           {showNewAddress ? (
-            <View style={[styles.form, float, { backgroundColor: c.paper, borderColor: c.border }]}>
+            <View style={[styles.form, { backgroundColor: "#FFFFFF", borderColor: c.border }]}>
               <Text style={[styles.sectionTitle, { color: c.ink }]}>New address</Text>
               <Field label="Full name" value={newAddr.full_name} onChange={(v) => setNewAddr((s) => ({ ...s, full_name: v }))} />
               <Field label="Phone" value={newAddr.phone} onChange={(v) => setNewAddr((s) => ({ ...s, phone: v }))} keyboardType="phone-pad" />
-              <Field label="Address line" value={newAddr.line1} onChange={(v) => setNewAddr((s) => ({ ...s, line1: v }))} />
-              <Field label="Pincode" value={newAddr.pincode} onChange={(v) => setNewAddr((s) => ({ ...s, pincode: v }))} keyboardType="number-pad" />
-              <Field label="City" value={newAddr.city} onChange={(v) => setNewAddr((s) => ({ ...s, city: v }))} />
+              <AddressAutocomplete value={pickedAddr} onChange={onPickAddress} onError={setError} />
               {addresses.length ? (
                 <FloatPress
                   onPress={() => {
@@ -373,23 +463,28 @@ export default function CheckoutScreen() {
 
           <SectionCard icon="time-outline" title="Delivery Time" c={c}>
             {slots.length ? (
-              <View style={styles.chips}>
-                {slots.map((s) => (
-                  <FloatPress
-                    key={s}
-                    style={[
-                      styles.chip,
-                      { borderColor: c.border, backgroundColor: c.paper },
-                      slot === s && { borderColor: c.coral, backgroundColor: c.blushSoft },
-                    ]}
-                    onPress={() => setSlot(s)}
-                  >
-                    <Text style={[styles.chipText, { color: c.cocoa }, slot === s && { color: c.ink }]}>
-                      {formatSlot(s)}
-                    </Text>
-                    {slot === s ? <Icon name="checkmark" size={14} color={c.coral} /> : null}
-                  </FloatPress>
-                ))}
+              <View style={styles.slotGrid}>
+                {slots.map((s) => {
+                  const on = slot === s;
+                  return (
+                    <FloatPress
+                      key={s}
+                      style={[
+                        styles.slotChip,
+                        {
+                          borderColor: on ? c.pink : c.border,
+                          backgroundColor: on ? c.blushSoft : "#FFFFFF",
+                        },
+                      ]}
+                      onPress={() => setSlot(s)}
+                    >
+                      <Text style={[styles.slotText, { color: on ? c.ink : c.cocoa }]}>
+                        {formatSlot(s)}
+                      </Text>
+                      {on ? <Icon name="checkmark" size={14} color={c.pink} /> : null}
+                    </FloatPress>
+                  );
+                })}
               </View>
             ) : (
               <Text style={[styles.addrLine, { color: c.muted }]}>No delivery slots configured yet.</Text>
@@ -402,7 +497,7 @@ export default function CheckoutScreen() {
 
           <SectionCard icon="document-text-outline" title="Delivery Instructions (Optional)" c={c}>
             <TextInput
-              style={[styles.textArea, { borderColor: c.border, backgroundColor: c.paper, color: c.ink }]}
+              style={[styles.textArea, { borderColor: c.border, color: c.ink }]}
               value={instructions}
               onChangeText={setInstructions}
               placeholder="Add instructions for safe delivery…"
@@ -411,9 +506,9 @@ export default function CheckoutScreen() {
             />
           </SectionCard>
 
-          <View style={[styles.toggleCard, float, { backgroundColor: c.paper, borderColor: c.border }]}>
+          <View style={[styles.toggleCard, { borderColor: c.border }]}>
             <View style={[styles.sectionIcon, { backgroundColor: c.blushSoft }]}>
-              <Icon name="shield-checkmark-outline" size={18} color={c.coral} />
+              <Icon name="shield-checkmark-outline" size={18} color={c.pink} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.sectionTitle, { color: c.ink }]}>Contactless Delivery</Text>
@@ -430,49 +525,58 @@ export default function CheckoutScreen() {
           </View>
 
           <SectionCard icon="card-outline" title="Payment" c={c}>
-            <View style={styles.chips}>
-              {methods.map((m) => (
-                <FloatPress
-                  key={m}
-                  style={[
-                    styles.chip,
-                    { borderColor: c.border, backgroundColor: c.paper },
-                    paymentMethod === m && { borderColor: c.chocolate, backgroundColor: c.chocolate },
-                  ]}
-                  onPress={() => setPaymentMethod(m)}
-                >
-                  {m === "wallet" ? <Icon name="wallet-outline" size={14} color={paymentMethod === m ? "#FFF" : c.ink} /> : null}
-                  <Text
+            <View style={styles.payGrid}>
+              {methods.map((m) => {
+                const on = paymentMethod === m;
+                const icon =
+                  m === "wallet" ? "wallet-outline" : m === "cod" ? "cash-outline" : "card-outline";
+                return (
+                  <FloatPress
+                    key={m}
                     style={[
-                      styles.chipText,
-                      { color: c.cocoa },
-                      paymentMethod === m && { color: "#FFF" },
+                      styles.payChip,
+                      { borderColor: on ? c.pink : c.border, backgroundColor: on ? c.blushSoft : "#FFFFFF" },
                     ]}
+                    onPress={() => setPaymentMethod(m)}
                   >
-                    {m === "wallet" ? `Wallet (${money(walletBalance)})` : m.replace(/_/g, " ")}
-                  </Text>
-                </FloatPress>
-              ))}
+                    <View style={[styles.payIcon, { backgroundColor: on ? c.pink : c.cream }]}>
+                      <Icon name={icon} size={16} color={on ? "#FFF" : c.pink} />
+                    </View>
+                    <Text style={[styles.payChipText, { color: on ? c.ink : c.cocoa }]} numberOfLines={1}>
+                      {payLabel(m, walletBalance)}
+                    </Text>
+                    {on ? <Icon name="checkmark-circle" size={16} color={c.pink} /> : null}
+                  </FloatPress>
+                );
+              })}
             </View>
             {paymentMethod === "wallet" && walletBalance < cartTotal ? (
               <Text style={[styles.hint, { color: c.danger }]}>
                 Insufficient wallet balance. Choose another method or top up.
               </Text>
             ) : null}
-            {paymentMethod.includes("upi") && paymentMethod !== "razorpay" ? (
-              <Field label="UPI ID" value={upiId} onChange={setUpiId} autoCapitalize="none" />
-            ) : null}
             {paymentMethod === "razorpay" ? (
               <Text style={[styles.hint, { color: c.muted }]}>
-                Razorpay opens a secure payment page after you place the order.
+                Secure Razorpay page opens next — UPI, cards, and netbanking.
               </Text>
+            ) : null}
+            {paymentMethod === "cod" ? (
+              <Text style={[styles.hint, { color: c.muted }]}>Pay in cash when your order arrives.</Text>
+            ) : null}
+            {couponCode ? (
+              <Text style={[styles.hint, { color: c.success }]}>Coupon {couponCode} will be applied</Text>
             ) : null}
           </SectionCard>
 
-          <View style={[styles.summaryCard, float, { backgroundColor: c.paper, borderColor: c.border }]}>
+          <LinearGradient
+            colors={["#FFFFFF", "#FFF5F7", "#F3F7FB"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.summaryCard, { borderColor: "rgba(233,116,142,0.28)" }]}
+          >
             <View style={styles.summaryHead}>
               <View style={[styles.sectionIcon, { backgroundColor: c.blushSoft }]}>
-                <Icon name="bag-handle-outline" size={18} color={c.coral} />
+                <Icon name="bag-handle-outline" size={18} color={c.pink} />
               </View>
               <Text style={[styles.sectionTitle, { color: c.ink }]}>Order Summary</Text>
             </View>
@@ -480,16 +584,18 @@ export default function CheckoutScreen() {
             <View style={[styles.dashed, { borderColor: c.border }]} />
             <View style={styles.totalRow}>
               <Text style={[styles.totalLabel, { color: c.ink }]}>Total Amount</Text>
-              <Text style={[styles.totalValue, { color: c.ink }]}>{money(cartTotal)}</Text>
+              <Text style={[styles.totalValue, { color: c.pink }]}>{money(cartTotal)}</Text>
             </View>
-          </View>
+          </LinearGradient>
         </FadeIn>
 
         {error ? <Banner text={error} tone="danger" /> : null}
 
         <FloatPress onPress={placeOrder} disabled={!canPay || busy || (paymentMethod === "wallet" && walletBalance < cartTotal)}>
           <LinearGradient
-            colors={!canPay || busy ? [c.muted, c.cocoa] : [c.chocolate, c.inkSoft]}
+            colors={!canPay || busy ? ["#B8A4AE", "#9A8A94"] : [c.pink, "#D45A78"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
             style={styles.cta}
           >
             {busy ? (
@@ -497,7 +603,9 @@ export default function CheckoutScreen() {
             ) : (
               <>
                 <Icon name="lock-closed-outline" size={18} color="#FFF" />
-                <Text style={styles.ctaText}>Continue to Payment</Text>
+                <Text style={styles.ctaText}>
+                  {paymentMethod === "cod" ? "Place COD order" : "Continue to Payment"}
+                </Text>
                 <Icon name="chevron-forward" size={18} color="#FFF" />
               </>
             )}
@@ -525,10 +633,10 @@ function SectionCard({
   c: ReturnType<typeof useThemeColors>;
 }) {
   return (
-    <View style={[styles.sectionCard, float, { backgroundColor: c.paper, borderColor: c.border }]}>
+    <View style={[styles.sectionCard, { backgroundColor: "#FFFFFF", borderColor: c.border }]}>
       <View style={styles.sectionHead}>
         <View style={[styles.sectionIcon, { backgroundColor: c.blushSoft }]}>
-          <Icon name={icon} size={18} color={c.coral} />
+          <Icon name={icon} size={18} color={c.pink} />
         </View>
         <Text style={[styles.sectionTitle, { color: c.ink }]}>{title}</Text>
       </View>
@@ -565,7 +673,7 @@ function Field({
     <View style={{ gap: 6 }}>
       <Text style={[styles.label, { color: c.muted }]}>{label}</Text>
       <TextInput
-        style={[styles.input, { borderColor: c.border, backgroundColor: c.paper, color: c.ink }]}
+        style={[styles.input, { borderColor: c.border, backgroundColor: c.cream, color: c.ink }]}
         value={value}
         onChangeText={onChange}
         keyboardType={keyboardType}
@@ -577,19 +685,25 @@ function Field({
 }
 
 const styles = StyleSheet.create({
-  content: { gap: space.md, paddingBottom: 48 },
+  scroll: { flex: 1 },
+  content: { gap: 14, flexGrow: 1 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   sectionCard: {
-    borderRadius: radius.lg,
+    borderRadius: 20,
     borderWidth: 1,
-    padding: space.md,
-    gap: space.sm,
+    padding: 14,
+    gap: 10,
+    shadowColor: "#6A849C",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
   sectionHead: { flexDirection: "row", alignItems: "center", gap: 10 },
   sectionIcon: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -599,52 +713,100 @@ const styles = StyleSheet.create({
   changeLink: { fontFamily: fonts.bold, fontSize: 13, marginTop: 6 },
   addrPick: {
     borderWidth: 1,
-    borderRadius: radius.md,
-    padding: space.sm,
+    borderRadius: 16,
+    padding: 12,
     gap: 2,
   },
   addrPickRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  form: { borderRadius: radius.lg, borderWidth: 1, padding: space.md, gap: space.sm },
-  label: { fontSize: 13, fontFamily: fonts.medium },
+  form: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: space.md,
+    gap: space.sm,
+    shadowColor: "#6A849C",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  label: { fontSize: 12, fontFamily: fonts.medium },
   input: {
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: 14,
     paddingHorizontal: space.md,
-    paddingVertical: 12,
-    fontSize: 16,
+    paddingVertical: 13,
+    fontSize: 15,
     fontFamily: fonts.body,
   },
   textArea: {
     borderWidth: 1,
-    borderRadius: radius.md,
+    borderRadius: 14,
     paddingHorizontal: space.md,
     paddingVertical: 12,
     fontFamily: fonts.body,
-    minHeight: 72,
+    minHeight: 76,
     textAlignVertical: "top",
+    backgroundColor: "#F3F6FA",
   },
   toggleCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    borderRadius: radius.lg,
+    borderRadius: 20,
     borderWidth: 1,
-    padding: space.md,
+    padding: 14,
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#6A849C",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
-  toggleSub: { fontFamily: fonts.body, fontSize: 12, marginTop: 2 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: {
+  toggleSub: { fontFamily: fonts.body, fontSize: 12, marginTop: 2, lineHeight: 17 },
+  slotGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  slotChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
+    justifyContent: "center",
+    gap: 6,
+    width: "48%",
+    flexGrow: 1,
+    borderWidth: 1.5,
     borderRadius: radius.pill,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 11,
   },
-  chipText: { fontFamily: fonts.bold, textTransform: "capitalize", fontSize: 12 },
-  hint: { fontSize: 12, fontFamily: fonts.body },
-  summaryCard: { borderRadius: radius.lg, borderWidth: 1, padding: space.md, gap: 8 },
+  slotText: { fontFamily: fonts.bold, fontSize: 12 },
+  payGrid: { gap: 8 },
+  payChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1.5,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  payIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  payChipText: { flex: 1, fontFamily: fonts.bold, fontSize: 13 },
+  hint: { fontSize: 12, fontFamily: fonts.body, lineHeight: 17 },
+  summaryCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 14,
+    gap: 8,
+    shadowColor: "#6A849C",
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
+  },
   summaryHead: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 },
   summaryLine: { flexDirection: "row", justifyContent: "space-between" },
   summaryLabel: { fontFamily: fonts.body, fontSize: 14 },
@@ -652,14 +814,19 @@ const styles = StyleSheet.create({
   dashed: { borderBottomWidth: 1, borderStyle: "dashed", marginVertical: 4 },
   totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   totalLabel: { fontFamily: fonts.bold, fontSize: 16 },
-  totalValue: { fontFamily: fonts.display, fontSize: 26 },
+  totalValue: { fontFamily: fonts.display, fontSize: 28, letterSpacing: -0.5 },
   cta: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
-    borderRadius: radius.lg,
+    borderRadius: 18,
     paddingVertical: 16,
+    shadowColor: "#E9748E",
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
   },
   ctaText: { color: "#FFF", fontFamily: fonts.bold, fontSize: 16 },
   secureRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
